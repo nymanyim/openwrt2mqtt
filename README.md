@@ -45,11 +45,8 @@ apk add --allow-untrusted \
 | --- | --- |
 | MQTT 服务器 | `127.0.0.1:1883` |
 | DHCP 监听接口 | `br-lan` |
-| Topic 前缀 | `openwrt2mqtt` |
-| QoS | `0` |
-| 连接超时 | `10s` |
 
-MQTT 用户名和密码默认留空。LuCI 不会将已保存的密码读取到浏览器，只有输入新密码时才会更新密码。
+MQTT 用户名和密码默认留空。
 
 UCI 配置文件：
 
@@ -94,11 +91,9 @@ logread -e openwrt2mqtt              # 查看日志
 
 实际字段内容取决于设备和 DHCP 交互结果。
 
-## 构建与发布
+## 构建
 
 仓库工作流当前使用 OpenWrt `25.12.5`、`rockchip/armv8` SDK 构建 APK，并生成 `SHA256SUMS`。
-
-在 GitHub 的 **Actions -> Build OpenWrt APKs** 中可手动构建；从 `main` 分支运行并启用 Release 开关时，可创建正式版本。
 
 ## 许可证
 
