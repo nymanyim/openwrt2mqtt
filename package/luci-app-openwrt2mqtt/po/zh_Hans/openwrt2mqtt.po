@@ -33,17 +33,29 @@ msgstr "已配置"
 msgid "Not configured"
 msgstr "尚未配置"
 
-msgid "Event reporting"
-msgstr "事件上报"
+msgid "Version"
+msgstr "版本"
 
-msgid "Enabled"
-msgstr "已启用"
+msgid "Unknown"
+msgstr "未知"
+
+msgid "Reload service"
+msgstr "重载服务"
+
+msgid "Service reload failed."
+msgstr "服务重载失败。"
+
+msgid "Service reloaded successfully."
+msgstr "服务已成功重载。"
 
 msgid "Settings"
 msgstr "设置"
 
 msgid "Quick setup"
 msgstr "常用设置"
+
+msgid "Event settings"
+msgstr "事件设置"
 
 msgid "Advanced settings"
 msgstr "高级设置"
@@ -66,14 +78,8 @@ msgstr "密码"
 msgid "Leave empty to keep the saved password."
 msgstr "留空表示保持已保存的密码不变。"
 
-msgid "Topic prefix"
-msgstr "主题前缀"
-
-msgid "Test saved connection"
-msgstr "测试已保存的连接"
-
-msgid "Save and apply your changes before testing. No event will be published."
-msgstr "测试前请先保存并应用更改。测试不会发布业务事件。"
+msgid "Test connection"
+msgstr "测试连接"
 
 msgid "MQTT connection succeeded in %d ms."
 msgstr "MQTT 连接成功，耗时 %d 毫秒。"
@@ -90,11 +96,14 @@ msgstr "MQTT 连接失败。"
 msgid "The MQTT connection test failed."
 msgstr "MQTT 连接测试失败。"
 
-msgid "Router ID"
-msgstr "路由器标识"
+msgid "Device connection"
+msgstr "设备接入"
 
-msgid "Leave empty to use the system hostname."
-msgstr "留空则使用系统主机名。"
+msgid "Publish an event after a device obtains a DHCP address. Normal renewals are ignored."
+msgstr "设备通过 DHCP 获取地址后发布接入事件，正常续租不会重复发布。"
+
+msgid "View message example"
+msgstr "查看消息示例"
 
 msgid "Capture interface"
 msgstr "监听接口"
@@ -102,23 +111,62 @@ msgstr "监听接口"
 msgid "The capture interface must not be empty."
 msgstr "监听接口不能为空。"
 
-msgid "Client ID"
-msgstr "客户端 ID"
+msgid "Device connection message example"
+msgstr "设备接入消息示例"
 
-msgid "Leave empty to use the Router ID."
-msgstr "留空则使用路由器标识。"
+msgid "MQTT topic example"
+msgstr "MQTT 主题示例"
 
-msgid "Device connected event"
-msgstr "设备接入事件"
+msgid "Topic structure: topic prefix/router ID/event category/event type. Actual values depend on the device configuration."
+msgstr "主题结构：主题前缀/路由器标识/事件分类/事件类型。实际值以设备配置为准。"
 
-msgid "Publish an event after a device obtains a DHCP address. Normal renewals are ignored."
-msgstr "设备通过 DHCP 获取地址后发布接入事件，正常续租不会重复发布。"
+msgid "Message example"
+msgstr "消息示例"
 
-msgid "Connection timeout"
-msgstr "连接超时"
+msgid "Field description"
+msgstr "字段说明"
 
-msgid "Enter a positive duration such as 500ms, 10s, 1m, or 1h30m."
-msgstr "请输入大于零的时长，例如 500ms、10s、1m 或 1h30m。"
+msgid "Message schema version, currently 1."
+msgstr "消息结构版本，当前为 1。"
+
+msgid "Unique event identifier."
+msgstr "事件唯一标识。"
+
+msgid "Router identifier that produced the event."
+msgstr "产生事件的路由器标识。"
+
+msgid "Event category. Device connection events use network."
+msgstr "事件分类，设备接入使用 network。"
+
+msgid "Event type. Device connection events use device.connected."
+msgstr "事件类型，设备接入使用 device.connected。"
+
+msgid "Event source in the form dhcp/capture interface."
+msgstr "事件来源，格式为 dhcp/监听接口。"
+
+msgid "UTC time when the event was generated."
+msgstr "事件生成时的 UTC 时间。"
+
+msgid "Event-specific data."
+msgstr "当前事件的专属数据。"
+
+msgid "Device MAC address."
+msgstr "接入设备的 MAC 地址。"
+
+msgid "DHCP transaction identifier."
+msgstr "DHCP 事务标识。"
+
+msgid "IP address assigned to the device."
+msgstr "分配给设备的 IP 地址。"
+
+msgid "Hostname supplied by the device through DHCP."
+msgstr "设备通过 DHCP 提供的主机名。"
+
+msgid "DHCP server address."
+msgstr "DHCP 服务器地址。"
+
+msgid "mac and transaction_id are always present. ip, hostname, and server_ip are optional and may be absent from actual messages."
+msgstr "mac 和 transaction_id 始终存在；ip、hostname 和 server_ip 为可选字段，实际消息中可能不存在。"
 
 msgid "Log level"
 msgstr "日志级别"
@@ -137,21 +185,3 @@ msgstr "错误"
 
 msgid "Event queue capacity"
 msgstr "事件队列容量"
-
-msgid "Reload service"
-msgstr "重载服务"
-
-msgid "Validate the saved configuration and restart the service."
-msgstr "验证已保存的配置并重新启动服务。"
-
-msgid "Service reload failed."
-msgstr "服务重载失败。"
-
-msgid "Service reloaded successfully."
-msgstr "服务已成功重载。"
-
-msgid "Version"
-msgstr "版本"
-
-msgid "Unknown"
-msgstr "未知"
