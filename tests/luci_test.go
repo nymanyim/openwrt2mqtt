@@ -21,7 +21,7 @@ func TestLuCIMenuAndACL(t *testing.T) {
 	}
 	readJSON(t, menuPath, &menu)
 	entry, ok := menu["admin/services/openwrt2mqtt"]
-	if !ok || entry.Title != "OpenWrt Event Publisher" || entry.Action.Type != "view" || entry.Action.Path != "openwrt2mqtt/settings" {
+	if !ok || entry.Title != "OpenWrt to MQTT" || entry.Action.Type != "view" || entry.Action.Path != "openwrt2mqtt/settings" {
 		t.Fatalf("unexpected menu entry: %#v", entry)
 	}
 
@@ -76,6 +76,9 @@ func TestLuCISettingsPage(t *testing.T) {
 		"s.tab('advanced', _('Advanced settings'))",
 		"s.taboption('quick', form.Flag, 'enabled'",
 		"bindOption(s.taboption('quick', form.Value, '_broker'",
+		"o.default = '127.0.0.1:1883'",
+		"o.placeholder = '127.0.0.1:1883'",
+		"return uci.get('openwrt2mqtt', 'mqtt', 'broker') || '127.0.0.1:1883'",
 		"bindOption(s.taboption('advanced', form.Flag, '_device_event_enabled'",
 		"method: 'status'",
 		"method: 'reload'",
@@ -105,6 +108,16 @@ func TestLuCISettingsPage(t *testing.T) {
 		}
 	}
 
+	if strings.Count(text, "form.Button, '_reload'") != 1 {
+		t.Fatalf("settings page must contain exactly one reload button")
+	}
+	statusIndex := strings.Index(text, "_('Status')")
+	reloadIndex := strings.Index(text, "form.Button, '_reload'")
+	settingsIndex := strings.Index(text, "_('Settings')")
+	if statusIndex < 0 || reloadIndex < statusIndex || settingsIndex < reloadIndex {
+		t.Fatalf("reload button must be the last control in the Status section")
+	}
+
 	if node, err := exec.LookPath("node"); err == nil {
 		command := exec.Command(node, "--check", path)
 		if output, err := command.CombinedOutput(); err != nil {
@@ -123,18 +136,37 @@ func TestLuCISimplifiedChineseTranslation(t *testing.T) {
 
 	for _, expected := range []string{
 		"Language: zh_Hans",
-		"msgid \"OpenWrt Event Publisher\"",
-		"msgstr \"OpenWrt 事件推送\"",
+		"msgid \"OpenWrt to MQTT\"",
+		"msgstr \"OpenWrt to MQTT\"",
 		"msgid \"Quick setup\"",
 		"msgstr \"常用设置\"",
 		"msgid \"Advanced settings\"",
 		"msgstr \"高级设置\"",
 		"msgid \"MQTT server\"",
 		"msgstr \"MQTT 服务器\"",
+		"msgid \"Enter a host and port. tcp:// is added automatically when no protocol is specified.\"",
 		"msgid \"Leave empty to keep the saved password.\"",
 	} {
 		if !strings.Contains(text, expected) {
 			t.Fatalf("Simplified Chinese translation is missing %q", expected)
+		}
+	}
+}
+
+func TestBuildWorkflowIncludesSimplifiedChinesePackage(t *testing.T) {
+	path := repoPath(t, ".github", "workflows", "build-openwrt.yml")
+	content, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(content)
+	for _, expected := range []string{
+		"PACKAGE_luci-i18n-openwrt2mqtt-zh-cn",
+		"luci-i18n-openwrt2mqtt-zh-cn-*.apk",
+		"-eq 3",
+	} {
+		if !strings.Contains(text, expected) {
+			t.Fatalf("build workflow is missing %q", expected)
 		}
 	}
 }
