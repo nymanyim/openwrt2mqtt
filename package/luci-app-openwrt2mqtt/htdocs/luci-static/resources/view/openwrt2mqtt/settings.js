@@ -47,11 +47,6 @@ function addStatus(section, optionName, title, value) {
 	option.cfgvalue = function() { return value; };
 }
 
-function addTabStatus(section, tabName, optionName, title, value) {
-	var option = section.taboption(tabName, form.DummyValue, optionName, title);
-	option.cfgvalue = function() { return value; };
-}
-
 return view.extend({
 	load: function() {
 		return Promise.all([
@@ -61,10 +56,10 @@ return view.extend({
 	},
 
 	render: function(data) {
-		var m, s, o, serviceEnabled, deviceEventEnabled;
+		var m, s, o, deviceEventEnabled;
 		var status = data[1] || {};
 
-		m = new form.Map('openwrt2mqtt', _('OpenWrt Event Publisher'),
+		m = new form.Map('openwrt2mqtt', _('OpenWrt to MQTT'),
 			_('Configure MQTT and enable the service. Advanced options already have safe defaults.'));
 
 		s = m.section(form.NamedSection, 'main', 'openwrt2mqtt', _('Status'));
@@ -77,6 +72,21 @@ return view.extend({
 			status.configured ? _('Configured') : _('Not configured'));
 		addStatus(s, '_event_status', _('Event reporting'),
 			status.device_connected_enabled ? _('Enabled') : _('Disabled'));
+		addStatus(s, '_version', _('Version'), status.version || _('Unknown'));
+
+		o = s.option(form.Button, '_reload', _('Reload service'),
+			_('Validate the saved configuration and restart the service.'));
+		o.inputstyle = 'apply';
+		o.onclick = function() {
+			return callReload().then(function(result) {
+				if (!result.success)
+					throw new Error(_('Service reload failed.'));
+				ui.addNotification(null, E('p', _('Service reloaded successfully.')), 'info');
+				window.location.reload();
+			}).catch(function(error) {
+				ui.addNotification(null, E('p', error.message || _('Service reload failed.')), 'error');
+			});
+		};
 
 		s = m.section(form.NamedSection, 'main', 'openwrt2mqtt', _('Settings'));
 		s.anonymous = true;
@@ -84,33 +94,32 @@ return view.extend({
 		s.tab('quick', _('Quick setup'));
 		s.tab('advanced', _('Advanced settings'));
 
-		serviceEnabled = s.taboption('quick', form.Flag, 'enabled', _('Enable service'));
-		serviceEnabled.default = serviceEnabled.disabled;
-		serviceEnabled.rmempty = false;
+		o = s.taboption('quick', form.Flag, 'enabled', _('Enable service'));
+		o.default = o.disabled;
+		o.rmempty = false;
 
 		o = bindOption(s.taboption('quick', form.Value, '_broker', _('MQTT server'),
-			_('Example: tcp://192.168.1.10:1883')), 'mqtt', 'broker');
-		o.placeholder = 'tcp://192.168.1.10:1883';
-		o.optional = true;
-		o.validate = function(sectionId, value) {
-		if (serviceEnabled.formvalue('main') === '1' &&
-			deviceEventEnabled.formvalue('main') === '1' && !value)
-			return _('Enter the MQTT server before enabling the service.');
-		return true;
-	};
+			_('Enter a host and port. tcp:// is added automatically when no protocol is specified.')),
+			'mqtt', 'broker');
+		o.default = '127.0.0.1:1883';
+		o.placeholder = '127.0.0.1:1883';
+		o.cfgvalue = function() {
+			return uci.get('openwrt2mqtt', 'mqtt', 'broker') || '127.0.0.1:1883';
+		};
+		o.rmempty = false;
 
 		o = bindOption(s.taboption('quick', form.Value, '_username', _('Username')), 'mqtt', 'username');
 		o.optional = true;
 
 		o = s.taboption('quick', form.Value, '_password', _('Password'),
-		_('Leave empty to keep the saved password.'));
+			_('Leave empty to keep the saved password.'));
 		o.password = true;
 		o.optional = true;
 		o.cfgvalue = function() { return ''; };
 		o.write = function(sectionId, value) {
-		if (value)
-			uci.set('openwrt2mqtt', 'mqtt', 'password', value);
-	};
+			if (value)
+				uci.set('openwrt2mqtt', 'mqtt', 'password', value);
+		};
 		o.remove = function() {};
 
 		o = bindOption(s.taboption('quick', form.Value, '_topic', _('Topic prefix')), 'mqtt', 'topic');
@@ -118,45 +127,45 @@ return view.extend({
 		o.rmempty = false;
 
 		o = s.taboption('quick', form.Button, '_test_mqtt', _('Test saved connection'),
-		_('Save and apply your changes before testing. No event will be published.'));
+			_('Save and apply your changes before testing. No event will be published.'));
 		o.inputstyle = 'action';
 		o.onclick = function() {
-		return callTestMQTT().then(function(result) {
-			if (result.success) {
-				ui.addNotification(null,
-					E('p', _('MQTT connection succeeded in %d ms.').format(result.latency_ms || 0)), 'info');
-				return;
-			}
-			var messages = {
-				configuration_invalid: _('The saved MQTT configuration is invalid.'),
-				timeout: _('The MQTT connection timed out.'),
-				connection_failed: _('The MQTT connection failed.')
-			};
-			ui.addNotification(null, E('p', messages[result.error] || _('The MQTT connection failed.')), 'error');
-		}).catch(function(error) {
-			ui.addNotification(null, E('p', error.message || _('The MQTT connection test failed.')), 'error');
-		});
-	};
+			return callTestMQTT().then(function(result) {
+				if (result.success) {
+					ui.addNotification(null,
+						E('p', _('MQTT connection succeeded in %d ms.').format(result.latency_ms || 0)), 'info');
+					return;
+				}
+				var messages = {
+					configuration_invalid: _('The saved MQTT configuration is invalid.'),
+					timeout: _('The MQTT connection timed out.'),
+					connection_failed: _('The MQTT connection failed.')
+				};
+				ui.addNotification(null, E('p', messages[result.error] || _('The MQTT connection failed.')), 'error');
+			}).catch(function(error) {
+				ui.addNotification(null, E('p', error.message || _('The MQTT connection test failed.')), 'error');
+			});
+		};
 
 		o = s.taboption('advanced', form.Value, 'router_id', _('Router ID'),
-		_('Leave empty to use the system hostname.'));
+			_('Leave empty to use the system hostname.'));
 		o.optional = true;
 
 		o = s.taboption('advanced', form.Value, 'interface', _('Capture interface'));
 		o.default = 'br-lan';
 		o.rmempty = false;
 		o.validate = function(sectionId, value) {
-		return value ? true : _('The capture interface must not be empty.');
-	};
+			return value ? true : _('The capture interface must not be empty.');
+		};
 
 		o = bindOption(s.taboption('advanced', form.Value, '_client_id', _('Client ID'),
-		_('Leave empty to use the Router ID.')), 'mqtt', 'client_id');
+			_('Leave empty to use the Router ID.')), 'mqtt', 'client_id');
 		o.optional = true;
 
 		deviceEventEnabled = bindOption(s.taboption('advanced', form.Flag, '_device_event_enabled',
-		_('Device connected event'),
-		_('Publish an event after a device obtains a DHCP address. Normal renewals are ignored.')),
-		'network_device_connected', 'enabled');
+			_('Device connected event'),
+			_('Publish an event after a device obtains a DHCP address. Normal renewals are ignored.')),
+			'network_device_connected', 'enabled');
 		deviceEventEnabled.default = deviceEventEnabled.enabled;
 		deviceEventEnabled.rmempty = false;
 
@@ -185,22 +194,6 @@ return view.extend({
 		o.default = '128';
 		o.rmempty = false;
 
-		o = s.taboption('advanced', form.Button, '_reload', _('Reload service'),
-		_('Validate the saved configuration and restart the service.'));
-		o.inputstyle = 'apply';
-		o.onclick = function() {
-		return callReload().then(function(result) {
-			if (!result.success)
-				throw new Error(_('Service reload failed.'));
-			ui.addNotification(null, E('p', _('Service reloaded successfully.')), 'info');
-			window.location.reload();
-		}).catch(function(error) {
-			ui.addNotification(null, E('p', error.message || _('Service reload failed.')), 'error');
-		});
-	};
-
-	addTabStatus(s, 'advanced', '_version', _('Version'), status.version || _('Unknown'));
-
-	return m.render();
+		return m.render();
 	}
 });
