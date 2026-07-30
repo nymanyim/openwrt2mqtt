@@ -35,6 +35,8 @@ load_runtime_config() {
 	config_get log_level main log_level "info"
 	config_get bus_capacity main bus_capacity "128"
 	config_get_bool device_connected_enabled network_device_connected enabled 1
+	config_get_bool device_disconnected_enabled network_device_disconnected enabled 1
+	config_get offline_timeout network_device_disconnected offline_timeout "5s"
 
 	config_get broker mqtt broker "127.0.0.1:1883"
 	config_get client_id mqtt client_id ""
