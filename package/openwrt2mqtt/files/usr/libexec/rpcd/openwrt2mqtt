@@ -1,0 +1,54 @@
+#!/bin/sh
+
+FUNCTIONS_SH="${OPENWRT2MQTT_FUNCTIONS_SH:-/lib/functions.sh}"
+INIT_SCRIPT="${OPENWRT2MQTT_INIT_SCRIPT:-/etc/init.d/openwrt2mqtt}"
+PROG="${OPENWRT2MQTT_BINARY:-/usr/sbin/openwrt2mqtt}"
+
+. "$FUNCTIONS_SH"
+
+print_status() {
+	local enabled=0
+	local device_connected_enabled=1
+	local running=false
+	local configured=false
+	local version=unknown
+
+	config_load openwrt2mqtt
+	config_get_bool enabled main enabled 0
+	config_get_bool device_connected_enabled network_device_connected enabled 1
+	"$INIT_SCRIPT" running >/dev/null 2>&1 && running=true
+	QUIET_VALIDATION=1 "$INIT_SCRIPT" configured >/dev/null 2>&1 && configured=true
+
+	version="$("$PROG" version 2>/dev/null)"
+	case "$version" in
+		''|*[!A-Za-z0-9._+-]*) version=unknown ;;
+	esac
+	[ "$enabled" -eq 1 ] && enabled=true || enabled=false
+	[ "$device_connected_enabled" -eq 1 ] && device_connected_enabled=true || device_connected_enabled=false
+	printf '{"running":%s,"enabled":%s,"configured":%s,"device_connected_enabled":%s,"version":"%s"}\n' \
+		"$running" "$enabled" "$configured" "$device_connected_enabled" "$version"
+}
+
+case "$1" in
+	list)
+		printf '%s\n' '{"status":{},"reload":{},"test_mqtt":{}}'
+	;;
+	call)
+		case "$2" in
+			status)
+				print_status
+			;;
+			reload)
+				if "$INIT_SCRIPT" validate >/dev/null 2>&1 && "$INIT_SCRIPT" reload >/dev/null 2>&1; then
+					printf '%s\n' '{"success":true}'
+				else
+					logger -t openwrt2mqtt "ubus reload failed"
+					exit 1
+				fi
+			;;
+			test_mqtt)
+				"$INIT_SCRIPT" mqtt_test
+			;;
+		esac
+	;;
+esac

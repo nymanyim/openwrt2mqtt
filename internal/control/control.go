@@ -9,5 +9,9 @@ type Service interface {
 }
 
 type Status struct {
-	Running bool `json:"running"`
+	Running                bool   `json:"running"`
+	Enabled                bool   `json:"enabled"`
+	Configured             bool   `json:"configured"`
+	DeviceConnectedEnabled bool   `json:"device_connected_enabled"`
+	Version                string `json:"version"`
 }

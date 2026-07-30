@@ -1,0 +1,138 @@
+#!/bin/sh /etc/rc.common
+
+USE_PROCD=1
+START=95
+STOP=10
+
+CONFIG="openwrt2mqtt"
+PROG="${OPENWRT2MQTT_BINARY:-/usr/sbin/openwrt2mqtt}"
+EXTRA_COMMANDS="validate configured mqtt_test"
+EXTRA_HELP="\tvalidate        Validate enabled service configuration\n\tconfigured      Validate the complete configuration\n\tmqtt_test       Test the saved MQTT connection\n"
+
+is_positive_integer() {
+	case "$1" in
+		''|*[!0-9]*|0) return 1 ;;
+		*) return 0 ;;
+	esac
+}
+
+is_positive_duration() {
+	printf '%s\n' "$1" | grep -Eq '^([0-9]+([.][0-9]+)?(ns|us|µs|μs|ms|s|m|h))+$' || return 1
+	printf '%s\n' "$1" | grep -q '[1-9]'
+}
+
+validation_error() {
+	[ "${QUIET_VALIDATION:-0}" -eq 1 ] || logger -t openwrt2mqtt "$1"
+	return 1
+}
+
+load_runtime_config() {
+	config_load "$CONFIG"
+
+	config_get_bool enabled main enabled 0
+	config_get router_id main router_id ""
+	config_get interface main interface "br-lan"
+	config_get log_level main log_level "info"
+	config_get bus_capacity main bus_capacity "128"
+	config_get_bool device_connected_enabled network_device_connected enabled 1
+
+	config_get broker mqtt broker ""
+	config_get client_id mqtt client_id ""
+	config_get username mqtt username ""
+	config_get password mqtt password ""
+	config_get topic mqtt topic "openwrt2mqtt"
+	config_get qos mqtt qos "0"
+	config_get timeout mqtt timeout "10s"
+
+	[ -n "$router_id" ] || router_id="$(uci -q get system.@system[0].hostname)"
+	[ -n "$client_id" ] || client_id="$router_id"
+}
+
+validate_runtime_config() {
+	[ -n "$router_id" ] || validation_error "router_id is empty and system hostname is unavailable" || return 1
+	[ -n "$interface" ] || validation_error "interface must not be empty" || return 1
+	case "$log_level" in
+		debug|info|warn|error) ;;
+		*) validation_error "log_level must be debug, info, warn, or error" ; return 1 ;;
+	esac
+	case "$qos" in
+		0|1|2) ;;
+		*) validation_error "MQTT QoS must be 0, 1, or 2" ; return 1 ;;
+	esac
+	is_positive_integer "$bus_capacity" || validation_error "bus_capacity must be a positive integer" || return 1
+	is_positive_duration "$timeout" || validation_error "MQTT timeout must be a positive Go duration" || return 1
+}
+
+configured() {
+	load_runtime_config || return 1
+	validate_runtime_config || return 1
+	[ -n "$broker" ] || validation_error "MQTT broker must not be empty" || return 1
+}
+
+validate() {
+	load_runtime_config || return 1
+	[ "$enabled" -eq 1 ] || return 0
+	validate_runtime_config || return 1
+	[ "$device_connected_enabled" -eq 0 ] || [ -n "$broker" ] || validation_error "MQTT broker must not be empty when device connection events are enabled" || return 1
+}
+
+set_runtime_environment() {
+	export OPENWRT2MQTT_ROUTER_ID="$router_id"
+	export OPENWRT2MQTT_INTERFACE="$interface"
+	export OPENWRT2MQTT_LOG_LEVEL="$log_level"
+	export OPENWRT2MQTT_BUS_CAPACITY="$bus_capacity"
+	export OPENWRT2MQTT_EVENT_DEVICE_CONNECTED_ENABLED="$device_connected_enabled"
+	export OPENWRT2MQTT_MQTT_BROKER="$broker"
+	export OPENWRT2MQTT_MQTT_CLIENT_ID="$client_id"
+	export OPENWRT2MQTT_MQTT_USERNAME="$username"
+	export OPENWRT2MQTT_MQTT_PASSWORD="$password"
+	export OPENWRT2MQTT_MQTT_TOPIC="$topic"
+	export OPENWRT2MQTT_MQTT_QOS="$qos"
+	export OPENWRT2MQTT_MQTT_TIMEOUT="$timeout"
+}
+
+mqtt_test() {
+	QUIET_VALIDATION=1
+	configured || {
+		printf '%s\n' '{"success":false,"error":"configuration_invalid"}'
+		return 1
+	}
+	set_runtime_environment
+	"$PROG" mqtt-test
+}
+
+start_service() {
+	validate || return 1
+	[ "$enabled" -eq 1 ] || return 0
+
+	procd_open_instance main
+	procd_set_param command "$PROG"
+	procd_set_param env \
+		"OPENWRT2MQTT_ROUTER_ID=$router_id" \
+		"OPENWRT2MQTT_INTERFACE=$interface" \
+		"OPENWRT2MQTT_LOG_LEVEL=$log_level" \
+		"OPENWRT2MQTT_BUS_CAPACITY=$bus_capacity" \
+		"OPENWRT2MQTT_EVENT_DEVICE_CONNECTED_ENABLED=$device_connected_enabled" \
+		"OPENWRT2MQTT_MQTT_BROKER=$broker" \
+		"OPENWRT2MQTT_MQTT_CLIENT_ID=$client_id" \
+		"OPENWRT2MQTT_MQTT_USERNAME=$username" \
+		"OPENWRT2MQTT_MQTT_PASSWORD=$password" \
+		"OPENWRT2MQTT_MQTT_TOPIC=$topic" \
+		"OPENWRT2MQTT_MQTT_QOS=$qos" \
+		"OPENWRT2MQTT_MQTT_TIMEOUT=$timeout"
+	procd_set_param respawn 3600 5 5
+	procd_set_param stdout 1
+	procd_set_param stderr 1
+	procd_set_param file "/etc/config/$CONFIG"
+	procd_close_instance
+}
+
+reload_service() {
+	validate || return 1
+	stop
+	start
+}
+
+service_triggers() {
+	procd_add_reload_trigger "$CONFIG"
+}
