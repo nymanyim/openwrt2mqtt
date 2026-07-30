@@ -1,0 +1,47 @@
+name: Materialize Stage 6 Source
+
+on:
+  push:
+    branches:
+      - stage6/release-candidate
+    paths:
+      - .github/workflows/materialize-stage6.yml
+
+permissions:
+  contents: write
+
+jobs:
+  materialize:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Check out release candidate
+        uses: actions/checkout@v4
+        with:
+          ref: stage6/release-candidate
+
+      - name: Restore and commit complete source tree
+        shell: bash
+        run: |
+          set -euo pipefail
+          for index in 0 1 2 3 4 5 6; do
+            chunk=$(printf '%02d' "${index}")
+            curl --fail --location --silent --show-error \
+              "https://raw.githubusercontent.com/nymanyim/openwrt2mqtt/5cf5831499cca4fe4bdf274a9867e6f926bb6747/_sync/source.b64.${chunk}"
+          done | base64 --decode > /tmp/openwrt2mqtt-source.tar.gz
+          echo "c14bb38d767296bcb8ef7d8913adc6e6f315238cfc8a9290d2eab0f21b7a4d5d  /tmp/openwrt2mqtt-source.tar.gz" \
+            | sha256sum --check --strict -
+          tar -xzf /tmp/openwrt2mqtt-source.tar.gz
+          rm -f /tmp/openwrt2mqtt-source.tar.gz
+          rm -rf _sync
+          rm -f .github/workflows/bootstrap-stage5.yml
+          git checkout -- \
+            .github/workflows/build-openwrt.yml \
+            .github/workflows/materialize-stage6.yml \
+            .gitignore
+          git add -A -- \
+            .gitignore LICENSE Makefile README.md go.mod go.sum \
+            cmd internal package tests .github/workflows/README.md
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -m "stage6: synchronize complete source tree"
+          git push origin HEAD:stage6/release-candidate
