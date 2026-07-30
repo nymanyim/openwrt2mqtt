@@ -13,6 +13,7 @@ func TestLuCIMenuAndACL(t *testing.T) {
 	aclPath := repoPath(t, "package", "luci-app-openwrt2mqtt", "root", "usr", "share", "rpcd", "acl.d", "luci-app-openwrt2mqtt.json")
 
 	var menu map[string]struct {
+		Title  string `json:"title"`
 		Action struct {
 			Type string `json:"type"`
 			Path string `json:"path"`
@@ -20,7 +21,7 @@ func TestLuCIMenuAndACL(t *testing.T) {
 	}
 	readJSON(t, menuPath, &menu)
 	entry, ok := menu["admin/services/openwrt2mqtt"]
-	if !ok || entry.Action.Type != "view" || entry.Action.Path != "openwrt2mqtt/settings" {
+	if !ok || entry.Title != "OpenWrt Event Publisher" || entry.Action.Type != "view" || entry.Action.Path != "openwrt2mqtt/settings" {
 		t.Fatalf("unexpected menu entry: %#v", entry)
 	}
 
@@ -71,8 +72,11 @@ func TestLuCISettingsPage(t *testing.T) {
 	for _, expected := range []string{
 		"new form.Map('openwrt2mqtt'",
 		"form.NamedSection, 'main', 'openwrt2mqtt'",
-		"form.NamedSection, 'network_device_connected', 'event'",
-		"form.NamedSection, 'mqtt', 'mqtt'",
+		"s.tab('quick', _('Quick setup'))",
+		"s.tab('advanced', _('Advanced settings'))",
+		"s.taboption('quick', form.Flag, 'enabled'",
+		"bindOption(s.taboption('quick', form.Value, '_broker'",
+		"bindOption(s.taboption('advanced', form.Flag, '_device_event_enabled'",
 		"method: 'status'",
 		"method: 'reload'",
 		"method: 'test_mqtt'",
@@ -80,7 +84,7 @@ func TestLuCISettingsPage(t *testing.T) {
 		"o.cfgvalue = function() { return ''; }",
 		"o.remove = function() {}",
 		"if (value)",
-		"uci.set('openwrt2mqtt', sectionId, 'password', value)",
+		"uci.set('openwrt2mqtt', 'mqtt', 'password', value)",
 		"configuration_invalid",
 		"connection_failed",
 		"timeout",
@@ -109,12 +113,38 @@ func TestLuCISettingsPage(t *testing.T) {
 	}
 }
 
+func TestLuCISimplifiedChineseTranslation(t *testing.T) {
+	path := repoPath(t, "package", "luci-app-openwrt2mqtt", "po", "zh_Hans", "openwrt2mqtt.po")
+	content, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(content)
+
+	for _, expected := range []string{
+		"Language: zh_Hans",
+		"msgid \"OpenWrt Event Publisher\"",
+		"msgstr \"OpenWrt 事件推送\"",
+		"msgid \"Quick setup\"",
+		"msgstr \"常用设置\"",
+		"msgid \"Advanced settings\"",
+		"msgstr \"高级设置\"",
+		"msgid \"MQTT server\"",
+		"msgstr \"MQTT 服务器\"",
+		"msgid \"Leave empty to keep the saved password.\"",
+	} {
+		if !strings.Contains(text, expected) {
+			t.Fatalf("Simplified Chinese translation is missing %q", expected)
+		}
+	}
+}
+
 func TestStage5PackageMakefiles(t *testing.T) {
 	checks := map[string][]string{
 		repoPath(t, "package", "openwrt2mqtt", "Makefile"): {
 			"PKG_VERSION:=1.0.0",
 			"GO_PKG_BUILD_PKG:=$(GO_PKG)/cmd/openwrt2mqtt",
-			"GO_PKG_LDFLAGS_X:=$(GO_PKG)/cmd/openwrt2mqtt.version=$(PKG_VERSION)",
+			"GO_PKG_LDFLAGS_X:=main.version=$(PKG_VERSION)",
 			"DEPENDS:=$(GO_ARCH_DEPENDS) +ca-bundle +procd +rpcd +uci",
 			"/etc/config/openwrt2mqtt",
 			"$(INSTALL_BIN) $(GO_PKG_BUILD_BIN_DIR)/openwrt2mqtt $(1)/usr/sbin/openwrt2mqtt",
