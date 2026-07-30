@@ -1,1 +1,0 @@
-Integration tests cover the OpenWrt UCI-to-procd adapter, rpcd executable-plugin protocol, LuCI menu/ACL/view structure, password handling, and one-shot MQTT handshakes. Real-device installation and service tests are deferred to stage 7.
