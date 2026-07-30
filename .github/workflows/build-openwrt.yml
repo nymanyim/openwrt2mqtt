@@ -1,0 +1,124 @@
+name: Build OpenWrt APKs
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+      - stage6/release-candidate
+    paths:
+      - ".github/workflows/build-openwrt.yml"
+      - "cmd/**"
+      - "internal/**"
+      - "package/**"
+      - "go.mod"
+      - "go.sum"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: openwrt-apk-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  OPENWRT_VERSION: "25.12.5"
+  OPENWRT_TARGET: "rockchip"
+  OPENWRT_SUBTARGET: "armv8"
+  SDK_ARCHIVE: "openwrt-sdk-25.12.5-rockchip-armv8_gcc-14.3.0_musl.Linux-x86_64.tar.zst"
+
+jobs:
+  test:
+    name: Go tests
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Run tests
+        run: go test ./...
+
+  build:
+    name: OpenWrt 25.12.5 rockchip/armv8
+    needs: test
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Install SDK host dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential ca-certificates file gawk gettext git \
+            libncurses-dev libssl-dev python3 rsync unzip wget zstd
+
+      - name: Download and verify OpenWrt SDK
+        shell: bash
+        run: |
+          set -euo pipefail
+          base_url="https://downloads.openwrt.org/releases/${OPENWRT_VERSION}/targets/${OPENWRT_TARGET}/${OPENWRT_SUBTARGET}"
+          wget -q "${base_url}/sha256sums" -O sha256sums
+          wget -q "${base_url}/${SDK_ARCHIVE}" -O "${SDK_ARCHIVE}"
+          grep -F " *${SDK_ARCHIVE}" sha256sums | sha256sum --check --strict -
+          mkdir openwrt-sdk
+          tar --zstd -xf "${SDK_ARCHIVE}" --strip-components=1 -C openwrt-sdk
+          rm -f "${SDK_ARCHIVE}"
+
+      - name: Configure package feeds
+        working-directory: openwrt-sdk
+        shell: bash
+        run: |
+          set -euo pipefail
+          ./scripts/feeds update base packages luci
+          ./scripts/feeds install golang luci-base
+          test -L package/feeds/base/lua
+          test -L package/feeds/base/ucode
+          test -L package/feeds/base/libnl-tiny
+
+      - name: Add openwrt2mqtt packages
+        shell: bash
+        run: |
+          set -euo pipefail
+          ln -s "${GITHUB_WORKSPACE}/package/openwrt2mqtt" openwrt-sdk/package/openwrt2mqtt
+          ln -s "${GITHUB_WORKSPACE}/package/luci-app-openwrt2mqtt" openwrt-sdk/package/luci-app-openwrt2mqtt
+          make -C openwrt-sdk defconfig
+
+      - name: Build core and LuCI APKs
+        shell: bash
+        run: |
+          set -euo pipefail
+          make -C openwrt-sdk package/openwrt2mqtt/compile \
+            OPENWRT2MQTT_SOURCE_DIR="${GITHUB_WORKSPACE}" V=s -j"$(nproc)"
+          make -C openwrt-sdk package/luci-app-openwrt2mqtt/compile \
+            OPENWRT2MQTT_SOURCE_DIR="${GITHUB_WORKSPACE}" V=s -j"$(nproc)"
+
+      - name: Collect and verify APKs
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p artifacts
+          find openwrt-sdk/bin/packages -type f \
+            \( -name 'openwrt2mqtt-*.apk' -o -name 'luci-app-openwrt2mqtt-*.apk' \) \
+            -exec cp -v {} artifacts/ \;
+          test "$(find artifacts -maxdepth 1 -type f -name '*.apk' | wc -l)" -eq 2
+          find artifacts -maxdepth 1 -type f -name '*.apk' -print0 \
+            | sort -z \
+            | xargs -0 sha256sum \
+            | tee artifacts/SHA256SUMS
+          file artifacts/*.apk | tee artifacts/FILE_TYPES.txt
+
+      - name: Upload APK artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: openwrt2mqtt-1.0.0-openwrt-25.12.5-rockchip-armv8
+          path: artifacts/
+          if-no-files-found: error
+          retention-days: 14
