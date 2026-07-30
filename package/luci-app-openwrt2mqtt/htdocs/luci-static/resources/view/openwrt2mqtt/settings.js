@@ -94,14 +94,11 @@ function toggleMessageExample(event) {
 	messageExampleButton.setAttribute('aria-expanded', 'true');
 	messageExampleButton.style.position = 'relative';
 	messageExampleButton.style.zIndex = '901';
-	var modal = ui.showModal(null, [
+	ui.showModal(_('Message example'), [
 		E('pre', {
 			'data-openwrt2mqtt-message-example': 'true'
 		}, JSON.stringify(createMessageExample(), null, 2))
 	]);
-	var emptyTitle = modal.firstElementChild;
-	if (emptyTitle !== null && emptyTitle.tagName === 'H4' && emptyTitle.textContent === '')
-		emptyTitle.remove();
 	messageExampleOpen = true;
 
 	var overlay = document.getElementById('modal_overlay');
