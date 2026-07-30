@@ -1,6 +1,6 @@
 {
 	"admin/services/openwrt2mqtt": {
-		"title": "OpenWrt Event Publisher",
+		"title": "OpenWrt to MQTT",
 		"order": 80,
 		"action": {
 			"type": "view",
