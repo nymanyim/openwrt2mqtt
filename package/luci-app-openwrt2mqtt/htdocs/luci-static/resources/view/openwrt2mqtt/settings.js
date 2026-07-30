@@ -5,6 +5,11 @@
 'require uci';
 'require ui';
 
+var messageExamplePanel = null;
+var messageExampleButton = null;
+var messageExampleOutsideHandler = null;
+var messageExampleListenerTimer = null;
+
 var callStatus = rpc.declare({
 	object: 'openwrt2mqtt',
 	method: 'status',
@@ -36,15 +41,113 @@ function bindOption(option, sectionName, optionName) {
 	return option;
 }
 
-function validateDuration(sectionId, value) {
-	if (!/^([0-9]+([.][0-9]+)?(ns|us|µs|μs|ms|s|m|h))+$/.test(value) || !/[1-9]/.test(value))
-		return _('Enter a positive duration such as 500ms, 10s, 1m, or 1h30m.');
-	return true;
-}
-
 function addStatus(section, optionName, title, value) {
 	var option = section.option(form.DummyValue, optionName, title);
 	option.cfgvalue = function() { return value; };
+}
+
+function closeMessageExample() {
+	if (messageExampleListenerTimer !== null) {
+		window.clearTimeout(messageExampleListenerTimer);
+		messageExampleListenerTimer = null;
+	}
+	if (messageExampleOutsideHandler !== null) {
+		document.removeEventListener('click', messageExampleOutsideHandler);
+		messageExampleOutsideHandler = null;
+	}
+	if (messageExamplePanel !== null)
+		messageExamplePanel.remove();
+	messageExamplePanel = null;
+	messageExampleButton = null;
+}
+
+function createMessageExample() {
+	var message = {
+		schema_version: '1',
+		event_id: '8f69af77935d0b4a1902c203179348fa',
+		router_id: 'OpenWrt',
+		category: 'network',
+		type: 'device.connected',
+		source: 'dhcp/br-lan',
+		timestamp: '2026-07-30T05:18:21Z',
+		data: {
+			mac: 'AA:BB:CC:DD:EE:FF',
+			transaction_id: '1234abcd',
+			ip: '192.168.1.100',
+			hostname: 'example-device',
+			server_ip: '192.168.1.1'
+		}
+	};
+
+	return E('div', {
+		'class': 'cbi-section',
+		'data-openwrt2mqtt-message-example': 'true'
+	}, [
+		E('h4', _('Device connection message example')),
+		E('h5', _('MQTT topic example')),
+		E('pre', 'openwrt2mqtt/OpenWrt/network/device/connected'),
+		E('p', _('Topic structure: topic prefix/router ID/event category/event type. Actual values depend on the device configuration.')),
+		E('h5', _('Message example')),
+		E('pre', JSON.stringify(message, null, 2)),
+		E('h5', _('Field description')),
+		E('dl', {}, [
+			E('dt', E('code', 'schema_version')),
+			E('dd', _('Message schema version, currently 1.')),
+			E('dt', E('code', 'event_id')),
+			E('dd', _('Unique event identifier.')),
+			E('dt', E('code', 'router_id')),
+			E('dd', _('Router identifier that produced the event.')),
+			E('dt', E('code', 'category')),
+			E('dd', _('Event category. Device connection events use network.')),
+			E('dt', E('code', 'type')),
+			E('dd', _('Event type. Device connection events use device.connected.')),
+			E('dt', E('code', 'source')),
+			E('dd', _('Event source in the form dhcp/capture interface.')),
+			E('dt', E('code', 'timestamp')),
+			E('dd', _('UTC time when the event was generated.')),
+			E('dt', E('code', 'data')),
+			E('dd', _('Event-specific data.')),
+			E('dt', E('code', 'mac')),
+			E('dd', _('Device MAC address.')),
+			E('dt', E('code', 'transaction_id')),
+			E('dd', _('DHCP transaction identifier.')),
+			E('dt', E('code', 'ip')),
+			E('dd', _('IP address assigned to the device.')),
+			E('dt', E('code', 'hostname')),
+			E('dd', _('Hostname supplied by the device through DHCP.')),
+			E('dt', E('code', 'server_ip')),
+			E('dd', _('DHCP server address.'))
+		]),
+		E('p', _('mac and transaction_id are always present. ip, hostname, and server_ip are optional and may be absent from actual messages.'))
+	]);
+}
+
+function toggleMessageExample(event) {
+	var button = event.currentTarget;
+	if (messageExamplePanel !== null) {
+		closeMessageExample();
+		return;
+	}
+
+	var row = button.closest ? button.closest('.cbi-value') : button.parentNode;
+	if (row === null || row.parentNode === null)
+		return;
+
+	messageExampleButton = button;
+	messageExamplePanel = createMessageExample();
+	row.parentNode.insertBefore(messageExamplePanel, row.nextSibling);
+
+	messageExampleOutsideHandler = function(clickEvent) {
+		if (messageExamplePanel === null)
+			return;
+		if (messageExamplePanel.contains(clickEvent.target) || messageExampleButton.contains(clickEvent.target))
+			return;
+		closeMessageExample();
+	};
+	messageExampleListenerTimer = window.setTimeout(function() {
+		messageExampleListenerTimer = null;
+		document.addEventListener('click', messageExampleOutsideHandler);
+	}, 0);
 }
 
 return view.extend({
@@ -56,8 +159,9 @@ return view.extend({
 	},
 
 	render: function(data) {
-		var m, s, o, deviceEventEnabled;
+		var m, s, o, deviceConnectionEnabled;
 		var status = data[1] || {};
+		closeMessageExample();
 
 		m = new form.Map('openwrt2mqtt', _('OpenWrt to MQTT'),
 			_('Configure MQTT and enable the service. Advanced options already have safe defaults.'));
@@ -70,12 +174,10 @@ return view.extend({
 			status.running ? _('Running') : (status.enabled ? _('Not running') : _('Disabled')));
 		addStatus(s, '_mqtt_status', _('MQTT configuration'),
 			status.configured ? _('Configured') : _('Not configured'));
-		addStatus(s, '_event_status', _('Event reporting'),
-			status.device_connected_enabled ? _('Enabled') : _('Disabled'));
 		addStatus(s, '_version', _('Version'), status.version || _('Unknown'));
 
-		o = s.option(form.Button, '_reload', _('Reload service'),
-			_('Validate the saved configuration and restart the service.'));
+		o = s.option(form.Button, '_reload', '');
+		o.inputtitle = _('Reload service');
 		o.inputstyle = 'apply';
 		o.onclick = function() {
 			return callReload().then(function(result) {
@@ -92,6 +194,7 @@ return view.extend({
 		s.anonymous = true;
 		s.addremove = false;
 		s.tab('quick', _('Quick setup'));
+		s.tab('events', _('Event settings'));
 		s.tab('advanced', _('Advanced settings'));
 
 		o = s.taboption('quick', form.Flag, 'enabled', _('Enable service'));
@@ -122,12 +225,8 @@ return view.extend({
 		};
 		o.remove = function() {};
 
-		o = bindOption(s.taboption('quick', form.Value, '_topic', _('Topic prefix')), 'mqtt', 'topic');
-		o.default = 'openwrt2mqtt';
-		o.rmempty = false;
-
-		o = s.taboption('quick', form.Button, '_test_mqtt', _('Test saved connection'),
-			_('Save and apply your changes before testing. No event will be published.'));
+		o = s.taboption('quick', form.Button, '_test_mqtt', '');
+		o.inputtitle = _('Test connection');
 		o.inputstyle = 'action';
 		o.onclick = function() {
 			return callTestMQTT().then(function(result) {
@@ -147,39 +246,25 @@ return view.extend({
 			});
 		};
 
-		o = s.taboption('advanced', form.Value, 'router_id', _('Router ID'),
-			_('Leave empty to use the system hostname.'));
-		o.optional = true;
+		deviceConnectionEnabled = bindOption(s.taboption('events', form.Flag, '_device_event_enabled',
+			_('Device connection'),
+			_('Publish an event after a device obtains a DHCP address. Normal renewals are ignored.')),
+			'network_device_connected', 'enabled');
+		deviceConnectionEnabled.default = deviceConnectionEnabled.enabled;
+		deviceConnectionEnabled.rmempty = false;
 
-		o = s.taboption('advanced', form.Value, 'interface', _('Capture interface'));
+		o = s.taboption('events', form.Button, '_device_message_example', '');
+		o.inputtitle = _('View message example');
+		o.inputstyle = 'action';
+		o.onclick = toggleMessageExample;
+
+		o = s.taboption('events', form.Value, 'interface', _('Capture interface'));
 		o.default = 'br-lan';
 		o.rmempty = false;
+		o.depends('_device_event_enabled', '1');
 		o.validate = function(sectionId, value) {
 			return value ? true : _('The capture interface must not be empty.');
 		};
-
-		o = bindOption(s.taboption('advanced', form.Value, '_client_id', _('Client ID'),
-			_('Leave empty to use the Router ID.')), 'mqtt', 'client_id');
-		o.optional = true;
-
-		deviceEventEnabled = bindOption(s.taboption('advanced', form.Flag, '_device_event_enabled',
-			_('Device connected event'),
-			_('Publish an event after a device obtains a DHCP address. Normal renewals are ignored.')),
-			'network_device_connected', 'enabled');
-		deviceEventEnabled.default = deviceEventEnabled.enabled;
-		deviceEventEnabled.rmempty = false;
-
-		o = bindOption(s.taboption('advanced', form.ListValue, '_qos', _('QoS')), 'mqtt', 'qos');
-		o.value('0', '0');
-		o.value('1', '1');
-		o.value('2', '2');
-		o.default = '0';
-		o.rmempty = false;
-
-		o = bindOption(s.taboption('advanced', form.Value, '_timeout', _('Connection timeout')), 'mqtt', 'timeout');
-		o.default = '10s';
-		o.rmempty = false;
-		o.validate = validateDuration;
 
 		o = s.taboption('advanced', form.ListValue, 'log_level', _('Log level'));
 		o.value('debug', _('Debug'));
