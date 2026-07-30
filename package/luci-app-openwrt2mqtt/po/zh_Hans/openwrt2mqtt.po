@@ -3,8 +3,8 @@ msgstr ""
 "Content-Type: text/plain; charset=UTF-8\n"
 "Language: zh_Hans\n"
 
-msgid "OpenWrt Event Publisher"
-msgstr "OpenWrt 事件推送"
+msgid "OpenWrt to MQTT"
+msgstr "OpenWrt to MQTT"
 
 msgid "Configure MQTT and enable the service. Advanced options already have safe defaults."
 msgstr "配置 MQTT 服务器并启用服务。高级选项已提供安全的默认值。"
@@ -54,11 +54,8 @@ msgstr "启用服务"
 msgid "MQTT server"
 msgstr "MQTT 服务器"
 
-msgid "Example: tcp://192.168.1.10:1883"
-msgstr "示例：tcp://192.168.1.10:1883"
-
-msgid "Enter the MQTT server before enabling the service."
-msgstr "启用服务前，请先填写 MQTT 服务器。"
+msgid "Enter a host and port. tcp:// is added automatically when no protocol is specified."
+msgstr "请输入主机和端口；未指定协议时会自动添加 tcp://。"
 
 msgid "Username"
 msgstr "用户名"
