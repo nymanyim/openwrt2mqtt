@@ -16,7 +16,7 @@ OPENWRT2MQTT_SOURCE_DIR?=$(CURDIR)/../..
 
 GO_PKG:=github.com/nymanyim/openwrt2mqtt
 GO_PKG_BUILD_PKG:=$(GO_PKG)/cmd/openwrt2mqtt
-GO_PKG_LDFLAGS_X:=$(GO_PKG)/cmd/openwrt2mqtt.version=$(PKG_VERSION)
+GO_PKG_LDFLAGS_X:=main.version=$(PKG_VERSION)
 
 include $(INCLUDE_DIR)/package.mk
 include $(TOPDIR)/feeds/packages/lang/golang/golang-package.mk
