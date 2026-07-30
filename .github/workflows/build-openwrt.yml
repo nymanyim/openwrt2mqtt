@@ -94,8 +94,10 @@ jobs:
           ln -s "${GITHUB_WORKSPACE}/package/openwrt2mqtt" openwrt-sdk/package/openwrt2mqtt
           ln -s "${GITHUB_WORKSPACE}/package/luci-app-openwrt2mqtt" openwrt-sdk/package/luci-app-openwrt2mqtt
           make -C openwrt-sdk defconfig
+          openwrt-sdk/scripts/config --file openwrt-sdk/.config --module PACKAGE_luci-i18n-openwrt2mqtt-zh-cn
+          make -C openwrt-sdk defconfig
 
-      - name: Build core and LuCI APKs
+      - name: Build core, LuCI, and Simplified Chinese APKs
         shell: bash
         run: |
           set -euo pipefail
@@ -110,9 +112,10 @@ jobs:
           set -euo pipefail
           mkdir -p artifacts
           find openwrt-sdk/bin/packages -type f \
-            \( -name 'openwrt2mqtt-*.apk' -o -name 'luci-app-openwrt2mqtt-*.apk' \) \
+            \( -name 'openwrt2mqtt-*.apk' -o -name 'luci-app-openwrt2mqtt-*.apk' -o -name 'luci-i18n-openwrt2mqtt-zh-cn-*.apk' \) \
             -exec cp -v {} artifacts/ \;
-          test "$(find artifacts -maxdepth 1 -type f -name '*.apk' | wc -l)" -eq 2
+          test "$(find artifacts -maxdepth 1 -type f -name '*.apk' | wc -l)" -eq 3
+          test "$(find artifacts -maxdepth 1 -type f -name 'luci-i18n-openwrt2mqtt-zh-cn-*.apk' | wc -l)" -eq 1
           find artifacts -maxdepth 1 -type f -name '*.apk' -print0 \
             | sort -z \
             | xargs -0 sha256sum \
