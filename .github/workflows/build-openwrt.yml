@@ -11,8 +11,12 @@ on:
       - "cmd/**"
       - "internal/**"
       - "package/**"
+      - "tests/**"
       - "go.mod"
       - "go.sum"
+      - "LICENSE"
+      - "Makefile"
+      - "README.md"
 
 permissions:
   contents: read
