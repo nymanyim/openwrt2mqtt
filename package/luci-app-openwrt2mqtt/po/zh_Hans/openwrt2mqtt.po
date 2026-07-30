@@ -105,6 +105,21 @@ msgstr "设备接入"
 msgid "Publish device connection and disconnection events from Wi-Fi, DHCP, and IPv4 neighbor state. Duplicate state events are ignored."
 msgstr "通过 Wi-Fi、DHCP 和 IPv4 邻居状态发布设备接入与离线事件，重复状态不会重复发布。"
 
+msgid "Publish an event when a device is first observed or reconnects."
+msgstr "首次发现设备或设备重新连接时发布接入事件。"
+
+msgid "Device disconnection"
+msgstr "设备断开"
+
+msgid "Publish an event after a device remains unreachable for the configured offline time."
+msgstr "设备持续不可达达到设定离线时间后发布断开事件。"
+
+msgid "Offline time"
+msgstr "离线时间"
+
+msgid "Offline time must be a positive duration, for example 5s."
+msgstr "离线时间必须为大于零的时长，例如 5s。"
+
 msgid "Capture interface"
 msgstr "监听接口"
 
