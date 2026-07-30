@@ -81,8 +81,17 @@ func TestLuCISettingsPage(t *testing.T) {
 		"o.placeholder = '127.0.0.1:1883'",
 		"return uci.get('openwrt2mqtt', 'mqtt', 'broker') || '127.0.0.1:1883'",
 		"bindOption(s.taboption('events', form.Flag, '_device_event_enabled'",
-		"s.taboption('events', form.Button, '_device_message_example', '')",
-		"o.inputtitle = _('View message example')",
+		"attachMessageExampleButton(node)",
+		`[data-name="_device_event_enabled"] > .cbi-value-title`,
+		"data-openwrt2mqtt-message-example-button",
+		"'aria-label': _('View message example')",
+		"var modal = ui.showModal(null",
+		"var emptyTitle = modal.firstElementChild",
+		"emptyTitle.tagName === 'H4'",
+		"emptyTitle.remove()",
+		"document.getElementById('modal_overlay')",
+		"clickEvent.target === overlay",
+		"messageExampleButton.style.zIndex = '901'",
 		"s.taboption('events', form.Value, 'interface'",
 		"o.depends('_device_event_enabled', '1')",
 		"s.taboption('advanced', form.ListValue, 'log_level'",
@@ -126,8 +135,15 @@ func TestLuCISettingsPage(t *testing.T) {
 		"_('Client ID')",
 		"_('QoS')",
 		"_('Connection timeout')",
-		"ui.showModal(",
-		"ui.hideModal(",
+		"_('Leave empty to keep the saved password.')",
+		"_('Device connection message example')",
+		"_('MQTT topic example')",
+		"_('Topic structure: topic prefix/router ID/event category/event type. Actual values depend on the device configuration.')",
+		"_('Message example')",
+		"_('Field description')",
+		"_('Message schema version, currently 1.')",
+		"openwrt2mqtt/OpenWrt/network/device/connected",
+		"E('dl'",
 	} {
 		if strings.Contains(text, forbidden) {
 			t.Fatalf("settings page contains forbidden string %q", forbidden)
@@ -135,9 +151,8 @@ func TestLuCISettingsPage(t *testing.T) {
 	}
 
 	for option, want := range map[string]int{
-		"form.Button, '_reload'":                 1,
-		"form.Button, '_test_mqtt'":              1,
-		"form.Button, '_device_message_example'": 1,
+		"form.Button, '_reload'":    1,
+		"form.Button, '_test_mqtt'": 1,
 	} {
 		if got := strings.Count(text, option); got != want {
 			t.Fatalf("settings page contains %d occurrences of %q, want %d", got, option, want)
@@ -153,10 +168,11 @@ func TestLuCISettingsPage(t *testing.T) {
 
 	for _, expected := range []string{
 		"data-openwrt2mqtt-message-example",
-		"document.addEventListener('click', messageExampleOutsideHandler)",
-		"document.removeEventListener('click', messageExampleOutsideHandler)",
-		"messageExamplePanel.contains(clickEvent.target)",
-		"messageExampleButton.contains(clickEvent.target)",
+		"overlay.addEventListener('click', messageExampleOverlayHandler)",
+		"overlay.removeEventListener('click', messageExampleOverlayHandler)",
+		"messageExampleButton.setAttribute('aria-expanded', 'true')",
+		"messageExampleButton.setAttribute('aria-expanded', 'false')",
+		"JSON.stringify(createMessageExample(), null, 2)",
 		"schema_version: '1'",
 		"event_id: '8f69af77935d0b4a1902c203179348fa'",
 		"router_id: 'OpenWrt'",
@@ -206,20 +222,24 @@ func TestLuCISimplifiedChineseTranslation(t *testing.T) {
 		"msgstr \"设备接入\"",
 		"msgid \"View message example\"",
 		"msgstr \"查看消息示例\"",
-		"msgid \"Device connection message example\"",
-		"msgstr \"设备接入消息示例\"",
-		"msgid \"MQTT topic example\"",
-		"msgstr \"MQTT 主题示例\"",
-		"msgid \"Field description\"",
-		"msgstr \"字段说明\"",
-		"msgid \"mac and transaction_id are always present. ip, hostname, and server_ip are optional and may be absent from actual messages.\"",
 		"msgid \"MQTT server\"",
 		"msgstr \"MQTT 服务器\"",
 		"msgid \"Enter a host and port. tcp:// is added automatically when no protocol is specified.\"",
-		"msgid \"Leave empty to keep the saved password.\"",
 	} {
 		if !strings.Contains(text, expected) {
 			t.Fatalf("Simplified Chinese translation is missing %q", expected)
+		}
+	}
+
+	for _, forbidden := range []string{
+		"Leave empty to keep the saved password.",
+		"Device connection message example",
+		"MQTT topic example",
+		"Field description",
+		"Message schema version, currently 1.",
+	} {
+		if strings.Contains(text, forbidden) {
+			t.Fatalf("Simplified Chinese translation contains obsolete string %q", forbidden)
 		}
 	}
 }
