@@ -11,7 +11,7 @@ func TestFromEnvironment(t *testing.T) {
 	if err != nil {
 		t.Fatalf("FromEnvironment() error = %v", err)
 	}
-	if config.Interface != "br-lan" || config.MQTTClientID != "router-a" || config.MQTTQoS != 1 || !config.DeviceConnectedEnabled {
+	if config.Interface != "br-lan" || config.MQTTBroker != "tcp://127.0.0.1:1883" || config.MQTTClientID != "router-a" || config.MQTTQoS != 1 || !config.DeviceConnectedEnabled {
 		t.Fatalf("unexpected config: %#v", config)
 	}
 }
@@ -27,6 +27,18 @@ func TestFromEnvironmentParsesDeviceConnectedFlag(t *testing.T) {
 	}
 	if config.DeviceConnectedEnabled {
 		t.Fatal("DeviceConnectedEnabled = true")
+	}
+}
+
+func TestFromEnvironmentUsesDefaultBroker(t *testing.T) {
+	t.Setenv("OPENWRT2MQTT_ROUTER_ID", "router-a")
+
+	config, err := FromEnvironment()
+	if err != nil {
+		t.Fatalf("FromEnvironment() error = %v", err)
+	}
+	if config.MQTTBroker != defaultMQTTBroker {
+		t.Fatalf("MQTTBroker = %q", config.MQTTBroker)
 	}
 }
 
