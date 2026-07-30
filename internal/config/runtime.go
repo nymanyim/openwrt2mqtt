@@ -10,6 +10,7 @@ import (
 
 const (
 	defaultInterface   = "br-lan"
+	defaultMQTTBroker  = "127.0.0.1:1883"
 	defaultTopicPrefix = "openwrt2mqtt"
 	defaultMQTTTimeout = 10 * time.Second
 	defaultBusCapacity = 128
@@ -34,7 +35,7 @@ func FromEnvironment() (Runtime, error) {
 	config := Runtime{
 		RouterID:               os.Getenv("OPENWRT2MQTT_ROUTER_ID"),
 		Interface:              valueOrDefault("OPENWRT2MQTT_INTERFACE", defaultInterface),
-		MQTTBroker:             os.Getenv("OPENWRT2MQTT_MQTT_BROKER"),
+		MQTTBroker:             valueOrDefault("OPENWRT2MQTT_MQTT_BROKER", defaultMQTTBroker),
 		MQTTClientID:           os.Getenv("OPENWRT2MQTT_MQTT_CLIENT_ID"),
 		MQTTUsername:           os.Getenv("OPENWRT2MQTT_MQTT_USERNAME"),
 		MQTTPassword:           os.Getenv("OPENWRT2MQTT_MQTT_PASSWORD"),
