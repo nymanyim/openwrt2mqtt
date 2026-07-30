@@ -278,7 +278,7 @@ func TestBuildWorkflowIncludesSimplifiedChinesePackage(t *testing.T) {
 	}
 }
 
-func TestStage5PackageMakefiles(t *testing.T) {
+func TestOpenWrtPackageMakefiles(t *testing.T) {
 	checks := map[string][]string{
 		repoPath(t, "package", "openwrt2mqtt", "Makefile"): {
 			"PKG_VERSION:=1.0.0",
