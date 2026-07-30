@@ -73,13 +73,22 @@ func TestLuCISettingsPage(t *testing.T) {
 		"new form.Map('openwrt2mqtt'",
 		"form.NamedSection, 'main', 'openwrt2mqtt'",
 		"s.tab('quick', _('Quick setup'))",
+		"s.tab('events', _('Event settings'))",
 		"s.tab('advanced', _('Advanced settings'))",
 		"s.taboption('quick', form.Flag, 'enabled'",
 		"bindOption(s.taboption('quick', form.Value, '_broker'",
 		"o.default = '127.0.0.1:1883'",
 		"o.placeholder = '127.0.0.1:1883'",
 		"return uci.get('openwrt2mqtt', 'mqtt', 'broker') || '127.0.0.1:1883'",
-		"bindOption(s.taboption('advanced', form.Flag, '_device_event_enabled'",
+		"bindOption(s.taboption('events', form.Flag, '_device_event_enabled'",
+		"s.taboption('events', form.Button, '_device_message_example', '')",
+		"o.inputtitle = _('View message example')",
+		"s.taboption('events', form.Value, 'interface'",
+		"o.depends('_device_event_enabled', '1')",
+		"s.taboption('advanced', form.ListValue, 'log_level'",
+		"s.taboption('advanced', form.Value, 'bus_capacity'",
+		"o.inputtitle = _('Reload service')",
+		"o.inputtitle = _('Test connection')",
 		"method: 'status'",
 		"method: 'reload'",
 		"method: 'test_mqtt'",
@@ -96,26 +105,73 @@ func TestLuCISettingsPage(t *testing.T) {
 			t.Fatalf("settings page is missing %q", expected)
 		}
 	}
+
+	quickIndex := strings.Index(text, "s.tab('quick', _('Quick setup'))")
+	eventsIndex := strings.Index(text, "s.tab('events', _('Event settings'))")
+	advancedIndex := strings.Index(text, "s.tab('advanced', _('Advanced settings'))")
+	if quickIndex < 0 || eventsIndex < quickIndex || advancedIndex < eventsIndex {
+		t.Fatal("settings tabs must be ordered quick, events, advanced")
+	}
+
 	for _, forbidden := range []string{
 		"uci.get('openwrt2mqtt', 'mqtt', 'password')",
 		"fs.exec(",
 		"fs.read(",
 		"/etc/init.d/openwrt2mqtt",
 		"OPENWRT2MQTT_MQTT_PASSWORD",
+		"_('Event reporting')",
+		"_('Test saved connection')",
+		"_('Topic prefix')",
+		"_('Router ID')",
+		"_('Client ID')",
+		"_('QoS')",
+		"_('Connection timeout')",
+		"ui.showModal(",
+		"ui.hideModal(",
 	} {
 		if strings.Contains(text, forbidden) {
 			t.Fatalf("settings page contains forbidden string %q", forbidden)
 		}
 	}
 
-	if strings.Count(text, "form.Button, '_reload'") != 1 {
-		t.Fatalf("settings page must contain exactly one reload button")
+	for option, want := range map[string]int{
+		"form.Button, '_reload'":                 1,
+		"form.Button, '_test_mqtt'":              1,
+		"form.Button, '_device_message_example'": 1,
+	} {
+		if got := strings.Count(text, option); got != want {
+			t.Fatalf("settings page contains %d occurrences of %q, want %d", got, option, want)
+		}
 	}
+
 	statusIndex := strings.Index(text, "_('Status')")
 	reloadIndex := strings.Index(text, "form.Button, '_reload'")
 	settingsIndex := strings.Index(text, "_('Settings')")
 	if statusIndex < 0 || reloadIndex < statusIndex || settingsIndex < reloadIndex {
-		t.Fatalf("reload button must be the last control in the Status section")
+		t.Fatal("reload button must be the last control in the Status section")
+	}
+
+	for _, expected := range []string{
+		"data-openwrt2mqtt-message-example",
+		"document.addEventListener('click', messageExampleOutsideHandler)",
+		"document.removeEventListener('click', messageExampleOutsideHandler)",
+		"messageExamplePanel.contains(clickEvent.target)",
+		"messageExampleButton.contains(clickEvent.target)",
+		"schema_version: '1'",
+		"event_id: '8f69af77935d0b4a1902c203179348fa'",
+		"router_id: 'OpenWrt'",
+		"category: 'network'",
+		"type: 'device.connected'",
+		"source: 'dhcp/br-lan'",
+		"mac: 'AA:BB:CC:DD:EE:FF'",
+		"transaction_id: '1234abcd'",
+		"ip: '192.168.1.100'",
+		"hostname: 'example-device'",
+		"server_ip: '192.168.1.1'",
+	} {
+		if !strings.Contains(text, expected) {
+			t.Fatalf("message example is missing %q", expected)
+		}
 	}
 
 	if node, err := exec.LookPath("node"); err == nil {
@@ -140,8 +196,23 @@ func TestLuCISimplifiedChineseTranslation(t *testing.T) {
 		"msgstr \"OpenWrt to MQTT\"",
 		"msgid \"Quick setup\"",
 		"msgstr \"常用设置\"",
+		"msgid \"Event settings\"",
+		"msgstr \"事件设置\"",
 		"msgid \"Advanced settings\"",
 		"msgstr \"高级设置\"",
+		"msgid \"Test connection\"",
+		"msgstr \"测试连接\"",
+		"msgid \"Device connection\"",
+		"msgstr \"设备接入\"",
+		"msgid \"View message example\"",
+		"msgstr \"查看消息示例\"",
+		"msgid \"Device connection message example\"",
+		"msgstr \"设备接入消息示例\"",
+		"msgid \"MQTT topic example\"",
+		"msgstr \"MQTT 主题示例\"",
+		"msgid \"Field description\"",
+		"msgstr \"字段说明\"",
+		"msgid \"mac and transaction_id are always present. ip, hostname, and server_ip are optional and may be absent from actual messages.\"",
 		"msgid \"MQTT server\"",
 		"msgstr \"MQTT 服务器\"",
 		"msgid \"Enter a host and port. tcp:// is added automatically when no protocol is specified.\"",
