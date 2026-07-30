@@ -223,16 +223,32 @@ return view.extend({
 		};
 
 		deviceConnectionEnabled = bindOption(s.taboption('events', form.Flag, '_device_event_enabled',
-			_('Device connection'),
-			_('Publish device connection and disconnection events from Wi-Fi, DHCP, and IPv4 neighbor state. Duplicate state events are ignored.')),
+			_('Device connection'), _('Publish an event when a device is first observed or reconnects.')),
 			'network_device_connected', 'enabled');
 		deviceConnectionEnabled.default = deviceConnectionEnabled.enabled;
 		deviceConnectionEnabled.rmempty = false;
+
+		o = bindOption(s.taboption('events', form.Flag, '_device_disconnected_enabled',
+			_('Device disconnection'), _('Publish an event after a device remains unreachable for the configured offline time.')),
+			'network_device_disconnected', 'enabled');
+		o.default = o.enabled;
+		o.rmempty = false;
+
+		o = bindOption(s.taboption('events', form.Value, '_offline_timeout', _('Offline time')),
+			'network_device_disconnected', 'offline_timeout');
+		o.default = '5s';
+		o.rmempty = false;
+		o.depends('_device_disconnected_enabled', '1');
+		o.validate = function(sectionId, value) {
+			return /^(?:[0-9]+(?:\.[0-9]+)?(?:ns|us|µs|μs|ms|s|m|h))+$/.test(value) && /[1-9]/.test(value)
+				? true : _('Offline time must be a positive duration, for example 5s.');
+		};
 
 		o = s.taboption('events', form.Value, 'interface', _('Capture interface'));
 		o.default = 'br-lan';
 		o.rmempty = false;
 		o.depends('_device_event_enabled', '1');
+		o.depends('_device_disconnected_enabled', '1');
 		o.validate = function(sectionId, value) {
 			return value ? true : _('The capture interface must not be empty.');
 		};
