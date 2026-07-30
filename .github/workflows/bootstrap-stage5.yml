@@ -24,32 +24,61 @@ jobs:
           repository: nymanyim/openwrt2mqtt
           run-id: 30505003362
 
-      - name: Extract LuCI compiler failure
+      - name: Extract precise LuCI compiler failures
         shell: bash
         run: |
-          set -euo pipefail
-          log=diagnostics/luci-build.log
-          test -s "${log}"
           python3 - <<'PY'
           from pathlib import Path
           import re
 
-          lines = Path("diagnostics/luci-build.log").read_text(errors="replace").splitlines()
-          pattern = re.compile(
-              r"(^FAILED:|\berror:|\bfatal error:|undefined reference|cannot find|not found|No such file|collect2:)",
-              re.IGNORECASE,
-          )
-          matches = [index for index, line in enumerate(lines) if pattern.search(line)]
-          if not matches:
-              start = max(0, len(lines) - 160)
-              selected = lines[start:]
-          else:
-              start = max(0, matches[0] - 12)
-              end = min(len(lines), matches[0] + 28)
-              selected = lines[start:end]
+          log_path = Path("diagnostics/luci-build.log")
+          lines = log_path.read_text(errors="replace").splitlines()
+          patterns = [
+              re.compile(r"^.*?:\d+(?::\d+)?:\s+(?:fatal\s+)?error:", re.IGNORECASE),
+              re.compile(r"undefined reference to", re.IGNORECASE),
+              re.compile(r"collect2:\s*error:", re.IGNORECASE),
+              re.compile(r"(?:^|\s)ld(?:\.bfd)?:\s+.*(?:error|cannot find)", re.IGNORECASE),
+              re.compile(r"ninja:\s+error:", re.IGNORECASE),
+          ]
 
-          message = " | ".join(selected)
-          message = message.replace("%", "%25").replace("\r", "%0D").replace("\n", "%0A")
-          print(f"::error file=package/luci-app-openwrt2mqtt/Makefile,title=LuCI compiler failure::{message[:6000]}")
+          matches = []
+          for index, line in enumerate(lines):
+              if any(pattern.search(line) for pattern in patterns):
+                  matches.append(index)
+
+          def escape(value: str) -> str:
+              return value.replace("%", "%25").replace("\r", "%0D").replace("\n", "%0A")
+
+          if not matches:
+              candidates = [
+                  (index, line) for index, line in enumerate(lines)
+                  if re.search(r"(?:FAILED:|fatal|error:|undefined reference|No such file)", line, re.IGNORECASE)
+              ]
+              matches = [index for index, _ in candidates[-12:]]
+
+          if not matches:
+              print("::error file=package/luci-app-openwrt2mqtt/Makefile,title=LuCI diagnostics::No compiler diagnostic matched")
+              raise SystemExit(1)
+
+          emitted = 0
+          seen = set()
+          for index in matches:
+              context = []
+              for current in range(max(0, index - 2), min(len(lines), index + 3)):
+                  text = lines[current].strip()
+                  if text and len(text) <= 1800:
+                      context.append(f"L{current + 1}: {text}")
+              message = " | ".join(context) or f"L{index + 1}: {lines[index][:1800]}"
+              if message in seen:
+                  continue
+              seen.add(message)
+              emitted += 1
+              print(
+                  "::error file=package/luci-app-openwrt2mqtt/Makefile,"
+                  f"title=LuCI compiler failure {emitted}::{escape(message[:5000])}"
+              )
+              if emitted >= 12:
+                  break
+
+          raise SystemExit(1)
           PY
-          exit 1
