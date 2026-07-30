@@ -26,7 +26,7 @@ config_get() {
 		main.interface) value="${CFG_INTERFACE-br-lan}" ;;
 		main.log_level) value="${CFG_LOG_LEVEL-info}" ;;
 		main.bus_capacity) value="${CFG_BUS_CAPACITY-128}" ;;
-		mqtt.broker) value="${CFG_BROKER-tcp://127.0.0.1:1883}" ;;
+		mqtt.broker) value="${CFG_BROKER-127.0.0.1:1883}" ;;
 		mqtt.client_id) value="${CFG_CLIENT_ID-client-a}" ;;
 		mqtt.username) value="${CFG_USERNAME-user-a}" ;;
 		mqtt.password) value="${CFG_PASSWORD-secret-value}" ;;
@@ -70,6 +70,7 @@ func TestUCIConfigDefaultsDisabled(t *testing.T) {
 		"option bus_capacity '128'",
 		"config event 'network_device_connected'",
 		"option enabled '1'",
+		"option broker '127.0.0.1:1883'",
 		"option topic 'openwrt2mqtt'",
 		"option qos '0'",
 		"option timeout '10s'",
@@ -91,7 +92,7 @@ func TestInitScriptMapsUCIToEnvironment(t *testing.T) {
 		"<OPENWRT2MQTT_LOG_LEVEL=info>",
 		"<OPENWRT2MQTT_BUS_CAPACITY=128>",
 		"<OPENWRT2MQTT_EVENT_DEVICE_CONNECTED_ENABLED=1>",
-		"<OPENWRT2MQTT_MQTT_BROKER=tcp://127.0.0.1:1883>",
+		"<OPENWRT2MQTT_MQTT_BROKER=127.0.0.1:1883>",
 		"<OPENWRT2MQTT_MQTT_CLIENT_ID=client-a>",
 		"<OPENWRT2MQTT_MQTT_USERNAME=user-a>",
 		"<OPENWRT2MQTT_MQTT_PASSWORD=secret-value>",
@@ -174,23 +175,22 @@ printf '%s\n' '{"success":true,"latency_ms":5}'
 	}
 }
 
-func TestInitScriptAllowsMissingBrokerWhenDeviceEventIsDisabled(t *testing.T) {
+func TestInitScriptUsesDefaultBrokerWhenEmpty(t *testing.T) {
 	output, err := runInitHarness(t, map[string]string{
-		"CFG_DEVICE_CONNECTED_ENABLED": "0",
-		"CFG_BROKER":                   "",
+		"CFG_BROKER": "",
 	})
 	if err != nil {
 		t.Fatalf("start_service: %v\n%s", err, output)
 	}
-	if !strings.Contains(output, "PARAM <command>") {
-		t.Fatalf("service command was not registered:\n%s", output)
+	if !strings.Contains(output, "<OPENWRT2MQTT_MQTT_BROKER=127.0.0.1:1883>") {
+		t.Fatalf("default MQTT broker was not registered:\n%s", output)
 	}
 }
 
 func TestInitScriptReloadValidatesBeforeStopping(t *testing.T) {
 	output, err := runInitHarness(t, map[string]string{
 		"HARNESS_ACTION": "reload_service",
-		"CFG_BROKER":     "",
+		"CFG_QOS":        "3",
 	})
 	if err == nil {
 		t.Fatalf("reload_service accepted invalid configuration:\n%s", output)
@@ -205,7 +205,6 @@ func TestInitScriptRejectsInvalidConfiguration(t *testing.T) {
 		name string
 		env  map[string]string
 	}{
-		{name: "missing broker", env: map[string]string{"CFG_BROKER": ""}},
 		{name: "invalid QoS", env: map[string]string{"CFG_QOS": "3"}},
 		{name: "invalid log level", env: map[string]string{"CFG_LOG_LEVEL": "trace"}},
 		{name: "invalid bus capacity", env: map[string]string{"CFG_BUS_CAPACITY": "0"}},

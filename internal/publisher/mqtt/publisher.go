@@ -14,6 +14,7 @@ import (
 )
 
 const (
+	defaultBroker      = "127.0.0.1:1883"
 	defaultTopicPrefix = "openwrt2mqtt"
 	defaultTimeout     = 10 * time.Second
 )
@@ -62,9 +63,7 @@ func TestConnection(ctx context.Context, config Config) (time.Duration, error) {
 }
 
 func connect(ctx context.Context, config Config) (paho.Client, error) {
-	if config.Broker == "" {
-		return nil, errors.New("MQTT broker must not be empty")
-	}
+	broker := normalizeBroker(config.Broker)
 	if config.ClientID == "" {
 		return nil, errors.New("MQTT client ID must not be empty")
 	}
@@ -79,7 +78,7 @@ func connect(ctx context.Context, config Config) (paho.Client, error) {
 	}
 
 	options := paho.NewClientOptions().
-		AddBroker(config.Broker).
+		AddBroker(broker).
 		SetClientID(config.ClientID).
 		SetUsername(config.Username).
 		SetPassword(config.Password).
@@ -93,6 +92,17 @@ func connect(ctx context.Context, config Config) (paho.Client, error) {
 	}
 
 	return client, nil
+}
+
+func normalizeBroker(broker string) string {
+	broker = strings.TrimSpace(broker)
+	if broker == "" {
+		broker = defaultBroker
+	}
+	if strings.Contains(broker, "://") {
+		return broker
+	}
+	return "tcp://" + broker
 }
 
 func newWithClient(client paho.Client, config Config) *Publisher {

@@ -46,7 +46,7 @@ func TestConnectionConnectsAndDisconnectsWithoutPublishing(t *testing.T) {
 	}()
 
 	latency, err := TestConnection(context.Background(), Config{
-		Broker:   "tcp://" + listener.Addr().String(),
+		Broker:   listener.Addr().String(),
 		ClientID: "connection-test",
 		Timeout:  2 * time.Second,
 	})
@@ -77,6 +77,20 @@ func TestConnectionConnectsAndDisconnectsWithoutPublishing(t *testing.T) {
 		}
 	case <-time.After(3 * time.Second):
 		t.Fatal("timed out waiting for MQTT disconnect")
+	}
+}
+
+func TestNormalizeBroker(t *testing.T) {
+	tests := map[string]string{
+		"":                          "tcp://127.0.0.1:1883",
+		"127.0.0.1:1883":            "tcp://127.0.0.1:1883",
+		" tcp://broker.local:1883 ": "tcp://broker.local:1883",
+		"ssl://broker.local:8883":   "ssl://broker.local:8883",
+	}
+	for input, expected := range tests {
+		if actual := normalizeBroker(input); actual != expected {
+			t.Fatalf("normalizeBroker(%q) = %q; want %q", input, actual, expected)
+		}
 	}
 }
 

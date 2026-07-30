@@ -36,7 +36,7 @@ load_runtime_config() {
 	config_get bus_capacity main bus_capacity "128"
 	config_get_bool device_connected_enabled network_device_connected enabled 1
 
-	config_get broker mqtt broker ""
+	config_get broker mqtt broker "127.0.0.1:1883"
 	config_get client_id mqtt client_id ""
 	config_get username mqtt username ""
 	config_get password mqtt password ""
@@ -44,6 +44,7 @@ load_runtime_config() {
 	config_get qos mqtt qos "0"
 	config_get timeout mqtt timeout "10s"
 
+	[ -n "$broker" ] || broker="127.0.0.1:1883"
 	[ -n "$router_id" ] || router_id="$(uci -q get system.@system[0].hostname)"
 	[ -n "$client_id" ] || client_id="$router_id"
 }

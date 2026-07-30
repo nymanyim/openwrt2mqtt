@@ -9,7 +9,7 @@ config event 'network_device_connected'
 	option enabled '1'
 
 config mqtt 'mqtt'
-	option broker ''
+	option broker '127.0.0.1:1883'
 	option client_id ''
 	option username ''
 	option password ''

@@ -5,6 +5,10 @@
 'require uci';
 'require ui';
 
+var messageExampleOpen = false;
+var messageExampleButton = null;
+var messageExampleOverlayHandler = null;
+
 var callStatus = rpc.declare({
 	object: 'openwrt2mqtt',
 	method: 'status',
@@ -23,20 +27,104 @@ var callTestMQTT = rpc.declare({
 	expect: { '': {} }
 });
 
-function statusText(status) {
-	return [
-		_('Enabled: %s').format(status.enabled ? _('yes') : _('no')),
-		_('Running: %s').format(status.running ? _('yes') : _('no')),
-		_('Configured: %s').format(status.configured ? _('yes') : _('no')),
-		_('Device connected event: %s').format(status.device_connected_enabled ? _('enabled') : _('disabled')),
-		_('Version: %s').format(status.version || _('unknown'))
-	].join(' · ');
+function bindOption(option, sectionName, optionName) {
+	option.cfgvalue = function() {
+		return uci.get('openwrt2mqtt', sectionName, optionName);
+	};
+	option.write = function(sectionId, value) {
+		uci.set('openwrt2mqtt', sectionName, optionName, value);
+	};
+	option.remove = function() {
+		uci.unset('openwrt2mqtt', sectionName, optionName);
+	};
+	return option;
 }
 
-function validateDuration(sectionId, value) {
-	if (!/^([0-9]+([.][0-9]+)?(ns|us|µs|μs|ms|s|m|h))+$/.test(value) || !/[1-9]/.test(value))
-		return _('Enter a positive Go duration such as 500ms, 10s, 1m, or 1h30m.');
-	return true;
+function addStatus(section, optionName, title, value) {
+	var option = section.option(form.DummyValue, optionName, title);
+	option.cfgvalue = function() { return value; };
+}
+
+function createMessageExample() {
+	return {
+		schema_version: '1',
+		event_id: '8f69af77935d0b4a1902c203179348fa',
+		router_id: 'OpenWrt',
+		category: 'network',
+		type: 'device.connected',
+		source: 'dhcp/br-lan',
+		timestamp: '2026-07-30T05:18:21Z',
+		data: {
+			mac: 'AA:BB:CC:DD:EE:FF',
+			transaction_id: '1234abcd',
+			ip: '192.168.1.100',
+			hostname: 'example-device',
+			server_ip: '192.168.1.1'
+		}
+	};
+}
+
+function closeMessageExample() {
+	var overlay = document.getElementById('modal_overlay');
+	if (overlay !== null && messageExampleOverlayHandler !== null)
+		overlay.removeEventListener('click', messageExampleOverlayHandler);
+	if (messageExampleButton !== null) {
+		messageExampleButton.setAttribute('aria-expanded', 'false');
+		messageExampleButton.style.position = '';
+		messageExampleButton.style.zIndex = '';
+	}
+
+	messageExampleOverlayHandler = null;
+	messageExampleButton = null;
+	if (messageExampleOpen)
+		ui.hideModal();
+	messageExampleOpen = false;
+}
+
+function toggleMessageExample(event) {
+	event.preventDefault();
+	event.stopPropagation();
+
+	if (messageExampleOpen) {
+		closeMessageExample();
+		return;
+	}
+
+	messageExampleButton = event.currentTarget;
+	messageExampleButton.setAttribute('aria-expanded', 'true');
+	messageExampleButton.style.position = 'relative';
+	messageExampleButton.style.zIndex = '901';
+	ui.showModal(_('Message example'), [
+		E('pre', {
+			'data-openwrt2mqtt-message-example': 'true'
+		}, JSON.stringify(createMessageExample(), null, 2))
+	]);
+	messageExampleOpen = true;
+
+	var overlay = document.getElementById('modal_overlay');
+	messageExampleOverlayHandler = function(clickEvent) {
+		if (clickEvent.target === overlay)
+			closeMessageExample();
+	};
+	if (overlay !== null)
+		overlay.addEventListener('click', messageExampleOverlayHandler);
+}
+
+function attachMessageExampleButton(node) {
+	var title = node.querySelector('[data-name="_device_event_enabled"] > .cbi-value-title');
+	if (title === null)
+		return;
+
+	title.appendChild(E('button', {
+		'type': 'button',
+		'class': 'cbi-button',
+		'title': _('View message example'),
+		'aria-label': _('View message example'),
+		'aria-expanded': 'false',
+		'data-openwrt2mqtt-message-example-button': 'true',
+		'style': 'margin-left:.5em;padding:0 .35em;min-width:auto;line-height:1.3;vertical-align:middle',
+		'click': toggleMessageExample
+	}, 'ⓘ'));
 }
 
 return view.extend({
@@ -48,21 +136,25 @@ return view.extend({
 	},
 
 	render: function(data) {
-		var m, s, o, serviceEnabled, deviceEventEnabled;
+		var m, s, o, deviceConnectionEnabled;
 		var status = data[1] || {};
+		closeMessageExample();
 
 		m = new form.Map('openwrt2mqtt', _('OpenWrt to MQTT'),
-			_('Publish normalized OpenWrt events to an MQTT broker.'));
+			_('Publish OpenWrt system events to MQTT.'));
 
-		s = m.section(form.NamedSection, 'main', 'openwrt2mqtt', _('Service status'));
+		s = m.section(form.NamedSection, 'main', 'openwrt2mqtt', _('Status'));
 		s.anonymous = true;
 		s.addremove = false;
 
-		o = s.option(form.DummyValue, '_status', _('Current status'));
-		o.cfgvalue = function() { return statusText(status); };
+		addStatus(s, '_service_status', _('Service'),
+			status.running ? _('Running') : (status.enabled ? _('Not running') : _('Disabled')));
+		addStatus(s, '_mqtt_status', _('MQTT configuration'),
+			status.configured ? _('Configured') : _('Not configured'));
+		addStatus(s, '_version', _('Version'), status.version || _('Unknown'));
 
-		o = s.option(form.Button, '_reload', _('Reload service'),
-			_('Validate the saved configuration and restart the managed service.'));
+		o = s.option(form.Button, '_reload', '');
+		o.inputtitle = _('Reload service');
 		o.inputstyle = 'apply';
 		o.onclick = function() {
 			return callReload().then(function(result) {
@@ -75,8 +167,42 @@ return view.extend({
 			});
 		};
 
-		o = s.option(form.Button, '_test_mqtt', _('Test MQTT connection'),
-			_('Tests the saved configuration without publishing a business event. Save changes before testing.'));
+		s = m.section(form.NamedSection, 'main', 'openwrt2mqtt', _('Settings'));
+		s.anonymous = true;
+		s.addremove = false;
+		s.tab('quick', _('Quick setup'));
+		s.tab('events', _('Event settings'));
+		s.tab('advanced', _('Advanced settings'));
+
+		o = s.taboption('quick', form.Flag, 'enabled', _('Enable service'));
+		o.default = o.disabled;
+		o.rmempty = false;
+
+		o = bindOption(s.taboption('quick', form.Value, '_broker', _('MQTT server'),
+			_('Enter a host and port. tcp:// is added automatically when no protocol is specified.')),
+			'mqtt', 'broker');
+		o.default = '127.0.0.1:1883';
+		o.placeholder = '127.0.0.1:1883';
+		o.cfgvalue = function() {
+			return uci.get('openwrt2mqtt', 'mqtt', 'broker') || '127.0.0.1:1883';
+		};
+		o.rmempty = false;
+
+		o = bindOption(s.taboption('quick', form.Value, '_username', _('Username')), 'mqtt', 'username');
+		o.optional = true;
+
+		o = s.taboption('quick', form.Value, '_password', _('Password'));
+		o.password = true;
+		o.optional = true;
+		o.cfgvalue = function() { return ''; };
+		o.write = function(sectionId, value) {
+			if (value)
+				uci.set('openwrt2mqtt', 'mqtt', 'password', value);
+		};
+		o.remove = function() {};
+
+		o = s.taboption('quick', form.Button, '_test_mqtt', '');
+		o.inputtitle = _('Test connection');
 		o.inputstyle = 'action';
 		o.onclick = function() {
 			return callTestMQTT().then(function(result) {
@@ -96,26 +222,22 @@ return view.extend({
 			});
 		};
 
-		s = m.section(form.NamedSection, 'main', 'openwrt2mqtt', _('Basic settings'));
-		s.anonymous = true;
-		s.addremove = false;
+		deviceConnectionEnabled = bindOption(s.taboption('events', form.Flag, '_device_event_enabled',
+			_('Device connection'),
+			_('Publish an event after a device obtains a DHCP address. Normal renewals are ignored.')),
+			'network_device_connected', 'enabled');
+		deviceConnectionEnabled.default = deviceConnectionEnabled.enabled;
+		deviceConnectionEnabled.rmempty = false;
 
-		serviceEnabled = s.option(form.Flag, 'enabled', _('Enable service'));
-		serviceEnabled.default = serviceEnabled.disabled;
-		serviceEnabled.rmempty = false;
-
-		o = s.option(form.Value, 'router_id', _('Router ID'),
-			_('Leave empty to use the system hostname.'));
-		o.optional = true;
-
-		o = s.option(form.Value, 'interface', _('Capture interface'));
+		o = s.taboption('events', form.Value, 'interface', _('Capture interface'));
 		o.default = 'br-lan';
 		o.rmempty = false;
+		o.depends('_device_event_enabled', '1');
 		o.validate = function(sectionId, value) {
 			return value ? true : _('The capture interface must not be empty.');
 		};
 
-		o = s.option(form.ListValue, 'log_level', _('Log level'));
+		o = s.taboption('advanced', form.ListValue, 'log_level', _('Log level'));
 		o.value('debug', _('Debug'));
 		o.value('info', _('Info'));
 		o.value('warn', _('Warning'));
@@ -123,68 +245,14 @@ return view.extend({
 		o.default = 'info';
 		o.rmempty = false;
 
-		o = s.option(form.Value, 'bus_capacity', _('Event bus capacity'));
+		o = s.taboption('advanced', form.Value, 'bus_capacity', _('Event queue capacity'));
 		o.datatype = 'min(1)';
 		o.default = '128';
 		o.rmempty = false;
 
-		s = m.section(form.NamedSection, 'network_device_connected', 'event', _('Events'));
-		s.anonymous = true;
-		s.addremove = false;
-
-		deviceEventEnabled = s.option(form.Flag, 'enabled', _('Device connected'),
-			_('Emit network.device.connected after a DHCP address-acquisition exchange. Normal renewals are excluded.'));
-		deviceEventEnabled.default = deviceEventEnabled.enabled;
-		deviceEventEnabled.rmempty = false;
-
-		s = m.section(form.NamedSection, 'mqtt', 'mqtt', _('MQTT settings'));
-		s.anonymous = true;
-		s.addremove = false;
-
-		o = s.option(form.Value, 'broker', _('Broker URI'));
-		o.placeholder = 'tcp://192.0.2.1:1883';
-		o.optional = true;
-		o.validate = function(sectionId, value) {
-			if (serviceEnabled.formvalue('main') === '1' &&
-				deviceEventEnabled.formvalue('network_device_connected') === '1' && !value)
-				return _('The MQTT broker is required while the service and device connected event are enabled.');
-			return true;
-		};
-
-		o = s.option(form.Value, 'client_id', _('Client ID'),
-			_('Leave empty to use the Router ID.'));
-		o.optional = true;
-
-		o = s.option(form.Value, 'username', _('Username'));
-		o.optional = true;
-
-		o = s.option(form.Value, 'password', _('Password'),
-			_('Leave empty to keep the saved password.'));
-		o.password = true;
-		o.optional = true;
-		o.cfgvalue = function() { return ''; };
-		o.write = function(sectionId, value) {
-			if (value)
-				uci.set('openwrt2mqtt', sectionId, 'password', value);
-		};
-		o.remove = function() {};
-
-		o = s.option(form.Value, 'topic', _('Topic prefix'));
-		o.default = 'openwrt2mqtt';
-		o.rmempty = false;
-
-		o = s.option(form.ListValue, 'qos', _('QoS'));
-		o.value('0', '0');
-		o.value('1', '1');
-		o.value('2', '2');
-		o.default = '0';
-		o.rmempty = false;
-
-		o = s.option(form.Value, 'timeout', _('Timeout'));
-		o.default = '10s';
-		o.rmempty = false;
-		o.validate = validateDuration;
-
-		return m.render();
+		return m.render().then(function(node) {
+			attachMessageExampleButton(node);
+			return node;
+		});
 	}
 });
