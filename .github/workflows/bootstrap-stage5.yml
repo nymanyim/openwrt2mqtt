@@ -56,7 +56,7 @@ jobs:
           base_url="https://downloads.openwrt.org/releases/${OPENWRT_VERSION}/targets/${OPENWRT_TARGET}/${OPENWRT_SUBTARGET}"
           wget -q "${base_url}/sha256sums" -O sha256sums
           wget -q "${base_url}/${SDK_ARCHIVE}" -O "${SDK_ARCHIVE}"
-          grep " ${SDK_ARCHIVE}$" sha256sums | sha256sum --check --strict -
+          grep -F " *${SDK_ARCHIVE}" sha256sums | sha256sum --check --strict -
           mkdir openwrt-sdk
           tar --zstd -xf "${SDK_ARCHIVE}" --strip-components=1 -C openwrt-sdk
           rm -f "${SDK_ARCHIVE}"
