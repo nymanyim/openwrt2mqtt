@@ -8,119 +8,29 @@ on:
       - .github/workflows/bootstrap-stage5.yml
 
 permissions:
+  actions: read
   contents: read
 
-env:
-  OPENWRT_VERSION: "25.12.5"
-  OPENWRT_TARGET: "rockchip"
-  OPENWRT_SUBTARGET: "armv8"
-  SDK_ARCHIVE: "openwrt-sdk-25.12.5-rockchip-armv8_gcc-14.3.0_musl.Linux-x86_64.tar.zst"
-
 jobs:
-  build:
+  diagnose-luci:
     runs-on: ubuntu-24.04
-    timeout-minutes: 90
     steps:
-      - name: Check out staging branch
-        uses: actions/checkout@v4
-
-      - name: Restore complete source tree
-        shell: bash
-        run: |
-          set -euo pipefail
-          cat _sync/source.b64.* | base64 --decode > /tmp/openwrt2mqtt-source.tar.gz
-          echo "c14bb38d767296bcb8ef7d8913adc6e6f315238cfc8a9290d2eab0f21b7a4d5d  /tmp/openwrt2mqtt-source.tar.gz" | sha256sum --check --strict -
-          tar -xzf /tmp/openwrt2mqtt-source.tar.gz
-          rm -rf _sync /tmp/openwrt2mqtt-source.tar.gz
-
-      - name: Set up Go
-        uses: actions/setup-go@v5
-        with:
-          go-version-file: go.mod
-          cache: true
-
-      - name: Run Go tests
-        run: go test ./...
-
-      - name: Install SDK host dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends \
-            build-essential ca-certificates file gawk gettext git \
-            libncurses-dev libssl-dev python3 rsync unzip wget zstd
-
-      - name: Download and verify OpenWrt SDK
-        shell: bash
-        run: |
-          set -euo pipefail
-          base_url="https://downloads.openwrt.org/releases/${OPENWRT_VERSION}/targets/${OPENWRT_TARGET}/${OPENWRT_SUBTARGET}"
-          wget -q "${base_url}/sha256sums" -O sha256sums
-          wget -q "${base_url}/${SDK_ARCHIVE}" -O "${SDK_ARCHIVE}"
-          grep -F " *${SDK_ARCHIVE}" sha256sums | sha256sum --check --strict -
-          mkdir openwrt-sdk
-          tar --zstd -xf "${SDK_ARCHIVE}" --strip-components=1 -C openwrt-sdk
-          rm -f "${SDK_ARCHIVE}"
-
-      - name: Configure package feeds
-        working-directory: openwrt-sdk
-        run: |
-          ./scripts/feeds update packages luci
-          ./scripts/feeds install golang luci-base
-
-      - name: Add openwrt2mqtt packages
-        shell: bash
-        run: |
-          set -euo pipefail
-          ln -s "${GITHUB_WORKSPACE}/package/openwrt2mqtt" openwrt-sdk/package/openwrt2mqtt
-          ln -s "${GITHUB_WORKSPACE}/package/luci-app-openwrt2mqtt" openwrt-sdk/package/luci-app-openwrt2mqtt
-          make -C openwrt-sdk defconfig
-
-      - name: Build core APK
-        shell: bash
-        run: |
-          set -o pipefail
-          make -C openwrt-sdk package/openwrt2mqtt/compile \
-            OPENWRT2MQTT_SOURCE_DIR="${GITHUB_WORKSPACE}" V=s -j"$(nproc)" \
-            2>&1 | tee core-build.log
-
-      - name: Build LuCI APK
-        id: luci
-        continue-on-error: true
-        shell: bash
-        run: |
-          set -o pipefail
-          make -C openwrt-sdk package/luci-app-openwrt2mqtt/compile \
-            OPENWRT2MQTT_SOURCE_DIR="${GITHUB_WORKSPACE}" V=s -j"$(nproc)" \
-            2>&1 | tee luci-build.log
-
-      - name: Collect build diagnostics
-        if: always()
-        shell: bash
-        run: |
-          set -euo pipefail
-          mkdir -p diagnostics
-          cp -v core-build.log diagnostics/ 2>/dev/null || true
-          cp -v luci-build.log diagnostics/ 2>/dev/null || true
-          find openwrt-sdk/bin/packages -type f \
-            \( -name 'openwrt2mqtt-*.apk' -o -name 'luci-app-openwrt2mqtt-*.apk' \) \
-            -exec cp -v {} diagnostics/ \;
-          find diagnostics -maxdepth 1 -type f -name '*.apk' -print0 \
-            | sort -z \
-            | xargs -0 -r sha256sum \
-            | tee diagnostics/SHA256SUMS
-
-      - name: Upload build diagnostics
-        if: always()
-        uses: actions/upload-artifact@v4
+      - name: Download build diagnostics
+        uses: actions/download-artifact@v4
         with:
           name: openwrt2mqtt-stage5-diagnostics
-          path: diagnostics/
-          if-no-files-found: error
-          retention-days: 14
+          path: diagnostics
+          github-token: ${{ github.token }}
+          repository: nymanyim/openwrt2mqtt
+          run-id: 30505003362
 
-      - name: Verify build result
-        if: always()
+      - name: Expose LuCI build errors
         shell: bash
         run: |
-          test "${{ steps.luci.outcome }}" = "success"
-          test "$(find diagnostics -maxdepth 1 -type f -name '*.apk' | wc -l)" -eq 2
+          set -euo pipefail
+          test -s diagnostics/luci-build.log
+          tail -80 diagnostics/luci-build.log | while IFS= read -r line; do
+            message=$(printf '%s' "${line}" | sed 's/%/%25/g; s/\r/%0D/g; s/\n/%0A/g')
+            echo "::error file=package/luci-app-openwrt2mqtt/Makefile::${message}"
+          done
+          exit 1
