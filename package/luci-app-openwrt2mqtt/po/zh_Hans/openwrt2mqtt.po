@@ -102,8 +102,8 @@ msgstr "MQTT 连接测试失败。"
 msgid "Device connection"
 msgstr "设备接入"
 
-msgid "Publish an event after a device obtains a DHCP address. Normal renewals are ignored."
-msgstr "设备通过 DHCP 获取地址后发布接入事件，正常续租不会重复发布。"
+msgid "Publish device connection and disconnection events from Wi-Fi, DHCP, and IPv4 neighbor state. Duplicate state events are ignored."
+msgstr "通过 Wi-Fi、DHCP 和 IPv4 邻居状态发布设备接入与离线事件，重复状态不会重复发布。"
 
 msgid "Capture interface"
 msgstr "监听接口"

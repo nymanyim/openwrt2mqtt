@@ -224,7 +224,7 @@ return view.extend({
 
 		deviceConnectionEnabled = bindOption(s.taboption('events', form.Flag, '_device_event_enabled',
 			_('Device connection'),
-			_('Publish an event after a device obtains a DHCP address. Normal renewals are ignored.')),
+			_('Publish device connection and disconnection events from Wi-Fi, DHCP, and IPv4 neighbor state. Duplicate state events are ignored.')),
 			'network_device_connected', 'enabled');
 		deviceConnectionEnabled.default = deviceConnectionEnabled.enabled;
 		deviceConnectionEnabled.rmempty = false;

@@ -2,12 +2,14 @@
 
 `openwrt2mqtt` 是运行于 OpenWrt 的事件桥接服务，用于采集系统事件、统一消息格式，并通过 MQTT 提供给监控、自动化及其他订阅端。
 
-当前版本支持 DHCP 设备接入事件，整体结构可继续扩展其他事件源。
+当前版本支持设备接入与离线事件，可实时识别 Wi-Fi 关联变化，并通过 DHCP 与 ARP 邻居状态覆盖动态及静态 IPv4 设备。
 
 ## 功能
 
-- 监听 DHCP 流量并识别设备接入；
-- 忽略普通租约续期，减少重复消息；
+- 监听 hostapd，实时识别 Wi-Fi 设备接入与离线；
+- 监听 ARP 邻居状态，识别有线及静态 IPv4 设备；
+- 监听 DHCP 首次租约并补充 IP、主机名等信息；
+- 按 MAC 维护在线状态，过滤续租及多事件源产生的重复消息；
 - 将事件标准化为 JSON 并发布到 MQTT；
 - 支持 MQTT 认证、QoS、连接超时和 Topic 前缀；
 - 使用 UCI 管理配置，使用 procd 管理服务；
@@ -44,7 +46,7 @@ apk add --allow-untrusted \
 | 配置项 | 默认值 |
 | --- | --- |
 | MQTT 服务器 | `127.0.0.1:1883` |
-| DHCP 监听接口 | `br-lan` |
+| 设备监听接口 | `br-lan` |
 
 MQTT 用户名和密码默认留空。
 
@@ -89,7 +91,7 @@ logread -e openwrt2mqtt              # 查看日志
 }
 ```
 
-实际字段内容取决于设备和 DHCP 交互结果。
+事件类型为 `device.connected` 或 `device.disconnected`，对应 Topic 末尾分别为 `device/connected`、`device/disconnected`。实际字段取决于事件来源及设备是否提供 DHCP 信息。
 
 ## 构建
 
