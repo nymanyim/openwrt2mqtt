@@ -2,6 +2,12 @@ name: Build OpenWrt APKs
 
 on:
   workflow_dispatch:
+    inputs:
+      release:
+        description: "构建成功后发布 GitHub Release（仅 main 分支）"
+        required: true
+        default: false
+        type: boolean
   push:
     branches:
       - main
@@ -35,9 +41,31 @@ jobs:
   test:
     name: Go tests
     runs-on: ubuntu-24.04
+    outputs:
+      package_version: ${{ steps.package.outputs.version }}
+      artifact_name: ${{ steps.package.outputs.artifact_name }}
     steps:
       - name: Check out source
         uses: actions/checkout@v4
+
+      - name: Validate release request
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.release }}
+        shell: bash
+        run: |
+          if [ "${GITHUB_REF_NAME}" != "main" ]; then
+            echo "Release 只能从 main 分支发布。" >&2
+            exit 1
+          fi
+
+      - name: Read package metadata
+        id: package
+        shell: bash
+        run: |
+          set -euo pipefail
+          version="$(sed -n 's/^PKG_VERSION:=//p' package/openwrt2mqtt/Makefile)"
+          test -n "${version}"
+          echo "version=${version}" >> "${GITHUB_OUTPUT}"
+          echo "artifact_name=openwrt2mqtt-${version}-openwrt-${OPENWRT_VERSION}-${OPENWRT_TARGET}-${OPENWRT_SUBTARGET}" >> "${GITHUB_OUTPUT}"
 
       - name: Set up Go
         uses: actions/setup-go@v5
@@ -125,7 +153,58 @@ jobs:
       - name: Upload APK artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: openwrt2mqtt-1.0.0-openwrt-25.12.5-rockchip-armv8
+          name: ${{ needs.test.outputs.artifact_name }}
           path: artifacts/
           if-no-files-found: error
           retention-days: 14
+
+  release:
+    name: Publish GitHub Release
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.release }}
+    needs:
+      - test
+      - build
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Verify release tag
+        shell: bash
+        run: |
+          set -euo pipefail
+          tag="v${{ needs.test.outputs.package_version }}"
+          if git ls-remote --exit-code --tags origin "refs/tags/${tag}" >/dev/null 2>&1; then
+            echo "Release 标签 ${tag} 已存在，请先更新 PKG_VERSION。" >&2
+            exit 1
+          fi
+
+      - name: Download APK artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: ${{ needs.test.outputs.artifact_name }}
+          path: release-assets
+
+      - name: Verify release assets
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(find release-assets -maxdepth 1 -type f -name '*.apk' | wc -l)" -eq 3
+          test -f release-assets/SHA256SUMS
+          test -f release-assets/FILE_TYPES.txt
+          (cd release-assets && sha256sum --check SHA256SUMS)
+
+      - name: Publish release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ needs.test.outputs.package_version }}
+          name: openwrt2mqtt ${{ needs.test.outputs.package_version }}
+          target_commitish: ${{ github.sha }}
+          generate_release_notes: true
+          fail_on_unmatched_files: true
+          files: |
+            release-assets/*.apk
+            release-assets/SHA256SUMS
+            release-assets/FILE_TYPES.txt
