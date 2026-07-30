@@ -5,10 +5,9 @@
 'require uci';
 'require ui';
 
-var messageExamplePanel = null;
+var messageExampleOpen = false;
 var messageExampleButton = null;
-var messageExampleOutsideHandler = null;
-var messageExampleListenerTimer = null;
+var messageExampleOverlayHandler = null;
 
 var callStatus = rpc.declare({
 	object: 'openwrt2mqtt',
@@ -46,23 +45,8 @@ function addStatus(section, optionName, title, value) {
 	option.cfgvalue = function() { return value; };
 }
 
-function closeMessageExample() {
-	if (messageExampleListenerTimer !== null) {
-		window.clearTimeout(messageExampleListenerTimer);
-		messageExampleListenerTimer = null;
-	}
-	if (messageExampleOutsideHandler !== null) {
-		document.removeEventListener('click', messageExampleOutsideHandler);
-		messageExampleOutsideHandler = null;
-	}
-	if (messageExamplePanel !== null)
-		messageExamplePanel.remove();
-	messageExamplePanel = null;
-	messageExampleButton = null;
-}
-
 function createMessageExample() {
-	var message = {
+	return {
 		schema_version: '1',
 		event_id: '8f69af77935d0b4a1902c203179348fa',
 		router_id: 'OpenWrt',
@@ -78,76 +62,72 @@ function createMessageExample() {
 			server_ip: '192.168.1.1'
 		}
 	};
+}
 
-	return E('div', {
-		'class': 'cbi-section',
-		'data-openwrt2mqtt-message-example': 'true'
-	}, [
-		E('h4', _('Device connection message example')),
-		E('h5', _('MQTT topic example')),
-		E('pre', 'openwrt2mqtt/OpenWrt/network/device/connected'),
-		E('p', _('Topic structure: topic prefix/router ID/event category/event type. Actual values depend on the device configuration.')),
-		E('h5', _('Message example')),
-		E('pre', JSON.stringify(message, null, 2)),
-		E('h5', _('Field description')),
-		E('dl', {}, [
-			E('dt', E('code', 'schema_version')),
-			E('dd', _('Message schema version, currently 1.')),
-			E('dt', E('code', 'event_id')),
-			E('dd', _('Unique event identifier.')),
-			E('dt', E('code', 'router_id')),
-			E('dd', _('Router identifier that produced the event.')),
-			E('dt', E('code', 'category')),
-			E('dd', _('Event category. Device connection events use network.')),
-			E('dt', E('code', 'type')),
-			E('dd', _('Event type. Device connection events use device.connected.')),
-			E('dt', E('code', 'source')),
-			E('dd', _('Event source in the form dhcp/capture interface.')),
-			E('dt', E('code', 'timestamp')),
-			E('dd', _('UTC time when the event was generated.')),
-			E('dt', E('code', 'data')),
-			E('dd', _('Event-specific data.')),
-			E('dt', E('code', 'mac')),
-			E('dd', _('Device MAC address.')),
-			E('dt', E('code', 'transaction_id')),
-			E('dd', _('DHCP transaction identifier.')),
-			E('dt', E('code', 'ip')),
-			E('dd', _('IP address assigned to the device.')),
-			E('dt', E('code', 'hostname')),
-			E('dd', _('Hostname supplied by the device through DHCP.')),
-			E('dt', E('code', 'server_ip')),
-			E('dd', _('DHCP server address.'))
-		]),
-		E('p', _('mac and transaction_id are always present. ip, hostname, and server_ip are optional and may be absent from actual messages.'))
-	]);
+function closeMessageExample() {
+	var overlay = document.getElementById('modal_overlay');
+	if (overlay !== null && messageExampleOverlayHandler !== null)
+		overlay.removeEventListener('click', messageExampleOverlayHandler);
+	if (messageExampleButton !== null) {
+		messageExampleButton.setAttribute('aria-expanded', 'false');
+		messageExampleButton.style.position = '';
+		messageExampleButton.style.zIndex = '';
+	}
+
+	messageExampleOverlayHandler = null;
+	messageExampleButton = null;
+	if (messageExampleOpen)
+		ui.hideModal();
+	messageExampleOpen = false;
 }
 
 function toggleMessageExample(event) {
-	var button = event.currentTarget;
-	if (messageExamplePanel !== null) {
+	event.preventDefault();
+	event.stopPropagation();
+
+	if (messageExampleOpen) {
 		closeMessageExample();
 		return;
 	}
 
-	var row = button.closest ? button.closest('.cbi-value') : button.parentNode;
-	if (row === null || row.parentNode === null)
+	messageExampleButton = event.currentTarget;
+	messageExampleButton.setAttribute('aria-expanded', 'true');
+	messageExampleButton.style.position = 'relative';
+	messageExampleButton.style.zIndex = '901';
+	var modal = ui.showModal(null, [
+		E('pre', {
+			'data-openwrt2mqtt-message-example': 'true'
+		}, JSON.stringify(createMessageExample(), null, 2))
+	]);
+	var emptyTitle = modal.firstElementChild;
+	if (emptyTitle !== null && emptyTitle.tagName === 'H4' && emptyTitle.textContent === '')
+		emptyTitle.remove();
+	messageExampleOpen = true;
+
+	var overlay = document.getElementById('modal_overlay');
+	messageExampleOverlayHandler = function(clickEvent) {
+		if (clickEvent.target === overlay)
+			closeMessageExample();
+	};
+	if (overlay !== null)
+		overlay.addEventListener('click', messageExampleOverlayHandler);
+}
+
+function attachMessageExampleButton(node) {
+	var title = node.querySelector('[data-name="_device_event_enabled"] > .cbi-value-title');
+	if (title === null)
 		return;
 
-	messageExampleButton = button;
-	messageExamplePanel = createMessageExample();
-	row.parentNode.insertBefore(messageExamplePanel, row.nextSibling);
-
-	messageExampleOutsideHandler = function(clickEvent) {
-		if (messageExamplePanel === null)
-			return;
-		if (messageExamplePanel.contains(clickEvent.target) || messageExampleButton.contains(clickEvent.target))
-			return;
-		closeMessageExample();
-	};
-	messageExampleListenerTimer = window.setTimeout(function() {
-		messageExampleListenerTimer = null;
-		document.addEventListener('click', messageExampleOutsideHandler);
-	}, 0);
+	title.appendChild(E('button', {
+		'type': 'button',
+		'class': 'cbi-button',
+		'title': _('View message example'),
+		'aria-label': _('View message example'),
+		'aria-expanded': 'false',
+		'data-openwrt2mqtt-message-example-button': 'true',
+		'style': 'margin-left:.5em;padding:0 .35em;min-width:auto;line-height:1.3;vertical-align:middle',
+		'click': toggleMessageExample
+	}, 'ⓘ'));
 }
 
 return view.extend({
@@ -214,8 +194,7 @@ return view.extend({
 		o = bindOption(s.taboption('quick', form.Value, '_username', _('Username')), 'mqtt', 'username');
 		o.optional = true;
 
-		o = s.taboption('quick', form.Value, '_password', _('Password'),
-			_('Leave empty to keep the saved password.'));
+		o = s.taboption('quick', form.Value, '_password', _('Password'));
 		o.password = true;
 		o.optional = true;
 		o.cfgvalue = function() { return ''; };
@@ -253,11 +232,6 @@ return view.extend({
 		deviceConnectionEnabled.default = deviceConnectionEnabled.enabled;
 		deviceConnectionEnabled.rmempty = false;
 
-		o = s.taboption('events', form.Button, '_device_message_example', '');
-		o.inputtitle = _('View message example');
-		o.inputstyle = 'action';
-		o.onclick = toggleMessageExample;
-
 		o = s.taboption('events', form.Value, 'interface', _('Capture interface'));
 		o.default = 'br-lan';
 		o.rmempty = false;
@@ -279,6 +253,9 @@ return view.extend({
 		o.default = '128';
 		o.rmempty = false;
 
-		return m.render();
+		return m.render().then(function(node) {
+			attachMessageExampleButton(node);
+			return node;
+		});
 	}
 });
