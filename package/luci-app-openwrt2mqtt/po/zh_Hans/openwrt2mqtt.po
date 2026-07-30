@@ -6,6 +6,9 @@ msgstr ""
 msgid "View message example"
 msgstr "查看消息示例"
 
+msgid "Message example"
+msgstr "消息示例"
+
 msgid "OpenWrt to MQTT"
 msgstr "OpenWrt to MQTT"
 
