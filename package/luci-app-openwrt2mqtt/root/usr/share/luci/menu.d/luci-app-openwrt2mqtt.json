@@ -1,0 +1,14 @@
+{
+	"admin/services/openwrt2mqtt": {
+		"title": "OpenWrt to MQTT",
+		"order": 80,
+		"action": {
+			"type": "view",
+			"path": "openwrt2mqtt/settings"
+		},
+		"depends": {
+			"acl": [ "luci-app-openwrt2mqtt" ],
+			"uci": { "openwrt2mqtt": true }
+		}
+	}
+}

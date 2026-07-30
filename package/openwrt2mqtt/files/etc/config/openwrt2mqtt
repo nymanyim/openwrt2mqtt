@@ -1,0 +1,18 @@
+config openwrt2mqtt 'main'
+	option enabled '0'
+	option router_id ''
+	option interface 'br-lan'
+	option log_level 'info'
+	option bus_capacity '128'
+
+config event 'network_device_connected'
+	option enabled '1'
+
+config mqtt 'mqtt'
+	option broker ''
+	option client_id ''
+	option username ''
+	option password ''
+	option topic 'openwrt2mqtt'
+	option qos '0'
+	option timeout '10s'

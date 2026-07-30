@@ -1,0 +1,17 @@
+{
+	"luci-app-openwrt2mqtt": {
+		"description": "Manage OpenWrt to MQTT",
+		"read": {
+			"uci": [ "openwrt2mqtt" ],
+			"ubus": {
+				"openwrt2mqtt": [ "status" ]
+			}
+		},
+		"write": {
+			"uci": [ "openwrt2mqtt" ],
+			"ubus": {
+				"openwrt2mqtt": [ "reload", "test_mqtt" ]
+			}
+		}
+	}
+}
