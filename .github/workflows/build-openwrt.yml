@@ -15,7 +15,7 @@ on:
       - "go.sum"
 
 permissions:
-  contents: write
+  contents: read
 
 concurrency:
   group: openwrt-apk-${{ github.ref }}
@@ -28,55 +28,12 @@ env:
   SDK_ARCHIVE: "openwrt-sdk-25.12.5-rockchip-armv8_gcc-14.3.0_musl.Linux-x86_64.tar.zst"
 
 jobs:
-  sync-source:
-    name: Materialize complete source tree
-    runs-on: ubuntu-24.04
-    steps:
-      - name: Check out release candidate
-        uses: actions/checkout@v4
-        with:
-          ref: stage6/release-candidate
-          fetch-depth: 0
-
-      - name: Restore and commit complete source tree
-        shell: bash
-        run: |
-          set -euo pipefail
-          git fetch origin \
-            stage5/openwrt-apk-build:refs/remotes/origin/stage5/openwrt-apk-build \
-            --depth=1
-          for index in 0 1 2 3 4 5 6; do
-            chunk=$(printf '%02d' "${index}")
-            git show "refs/remotes/origin/stage5/openwrt-apk-build:_sync/source.b64.${chunk}"
-          done | base64 --decode > /tmp/openwrt2mqtt-source.tar.gz
-          echo "c14bb38d767296bcb8ef7d8913adc6e6f315238cfc8a9290d2eab0f21b7a4d5d  /tmp/openwrt2mqtt-source.tar.gz" \
-            | sha256sum --check --strict -
-          tar -xzf /tmp/openwrt2mqtt-source.tar.gz
-          rm -f /tmp/openwrt2mqtt-source.tar.gz
-          rm -rf _sync
-          rm -f .github/workflows/bootstrap-stage5.yml
-          git checkout -- .github/workflows/build-openwrt.yml .gitignore
-          git add -A -- \
-            .gitignore LICENSE Makefile README.md go.mod go.sum \
-            cmd internal package tests .github/workflows/README.md
-          if git diff --cached --quiet; then
-            echo "Source tree is already complete"
-            exit 0
-          fi
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git commit -m "stage6: synchronize complete source tree"
-          git push origin HEAD:stage6/release-candidate
-
   test:
     name: Go tests
-    needs: sync-source
     runs-on: ubuntu-24.04
     steps:
       - name: Check out source
         uses: actions/checkout@v4
-        with:
-          ref: stage6/release-candidate
 
       - name: Set up Go
         uses: actions/setup-go@v5
@@ -95,8 +52,6 @@ jobs:
     steps:
       - name: Check out source
         uses: actions/checkout@v4
-        with:
-          ref: stage6/release-candidate
 
       - name: Install SDK host dependencies
         run: |
