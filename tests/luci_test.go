@@ -253,6 +253,8 @@ func TestBuildWorkflowIncludesSimplifiedChinesePackage(t *testing.T) {
 		"PACKAGE_luci-i18n-openwrt2mqtt-zh-cn",
 		"luci-i18n-openwrt2mqtt-zh-cn-*.apk",
 		"-eq 3",
+		"cd artifacts",
+		"xargs -0 sha256sum",
 		"type: boolean",
 		"inputs.release",
 		"Release 只能从 main 分支发布。",
