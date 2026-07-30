@@ -119,6 +119,8 @@ start_service() {
 		"OPENWRT2MQTT_LOG_LEVEL=$log_level" \
 		"OPENWRT2MQTT_BUS_CAPACITY=$bus_capacity" \
 		"OPENWRT2MQTT_EVENT_DEVICE_CONNECTED_ENABLED=$device_connected_enabled" \
+		"OPENWRT2MQTT_EVENT_DEVICE_DISCONNECTED_ENABLED=$device_disconnected_enabled" \
+		"OPENWRT2MQTT_OFFLINE_TIMEOUT=$offline_timeout" \
 		"OPENWRT2MQTT_MQTT_BROKER=$broker" \
 		"OPENWRT2MQTT_MQTT_CLIENT_ID=$client_id" \
 		"OPENWRT2MQTT_MQTT_USERNAME=$username" \
