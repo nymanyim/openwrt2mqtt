@@ -19,19 +19,33 @@ jobs:
         with:
           ref: stage6/release-candidate
 
-      - name: Restore and commit complete source tree
+      - name: Download verified source chunks
         shell: bash
         run: |
           set -euo pipefail
+          : > /tmp/openwrt2mqtt-source.b64
           for index in 0 1 2 3 4 5 6; do
             chunk=$(printf '%02d' "${index}")
             curl --fail --location --silent --show-error \
-              "https://raw.githubusercontent.com/nymanyim/openwrt2mqtt/5cf5831499cca4fe4bdf274a9867e6f926bb6747/_sync/source.b64.${chunk}"
-          done | base64 --decode > /tmp/openwrt2mqtt-source.tar.gz
+              "https://raw.githubusercontent.com/nymanyim/openwrt2mqtt/5cf5831499cca4fe4bdf274a9867e6f926bb6747/_sync/source.b64.${chunk}" \
+              >> /tmp/openwrt2mqtt-source.b64
+          done
+          test -s /tmp/openwrt2mqtt-source.b64
+
+      - name: Verify and extract source archive
+        shell: bash
+        run: |
+          set -euo pipefail
+          base64 --decode /tmp/openwrt2mqtt-source.b64 > /tmp/openwrt2mqtt-source.tar.gz
           echo "c14bb38d767296bcb8ef7d8913adc6e6f315238cfc8a9290d2eab0f21b7a4d5d  /tmp/openwrt2mqtt-source.tar.gz" \
             | sha256sum --check --strict -
           tar -xzf /tmp/openwrt2mqtt-source.tar.gz
-          rm -f /tmp/openwrt2mqtt-source.tar.gz
+          rm -f /tmp/openwrt2mqtt-source.b64 /tmp/openwrt2mqtt-source.tar.gz
+
+      - name: Stage complete source tree
+        shell: bash
+        run: |
+          set -euo pipefail
           rm -rf _sync
           rm -f .github/workflows/bootstrap-stage5.yml
           git checkout -- \
@@ -41,7 +55,17 @@ jobs:
           git add -A -- \
             .gitignore LICENSE Makefile README.md go.mod go.sum \
             cmd internal package tests .github/workflows/README.md
+          git diff --cached --stat
+          test -n "$(git diff --cached --name-only)"
+
+      - name: Commit complete source tree
+        shell: bash
+        run: |
+          set -euo pipefail
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git commit -m "stage6: synchronize complete source tree"
-          git push origin HEAD:stage6/release-candidate
+
+      - name: Push complete source tree
+        shell: bash
+        run: git push origin HEAD:stage6/release-candidate
