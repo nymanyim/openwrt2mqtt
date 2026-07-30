@@ -1,0 +1,160 @@
+msgid ""
+msgstr ""
+"Content-Type: text/plain; charset=UTF-8\n"
+"Language: zh_Hans\n"
+
+msgid "OpenWrt Event Publisher"
+msgstr "OpenWrt 事件推送"
+
+msgid "Configure MQTT and enable the service. Advanced options already have safe defaults."
+msgstr "配置 MQTT 服务器并启用服务。高级选项已提供安全的默认值。"
+
+msgid "Status"
+msgstr "运行状态"
+
+msgid "Service"
+msgstr "服务"
+
+msgid "Running"
+msgstr "运行中"
+
+msgid "Not running"
+msgstr "未运行"
+
+msgid "Disabled"
+msgstr "已停用"
+
+msgid "MQTT configuration"
+msgstr "MQTT 配置"
+
+msgid "Configured"
+msgstr "已配置"
+
+msgid "Not configured"
+msgstr "尚未配置"
+
+msgid "Event reporting"
+msgstr "事件上报"
+
+msgid "Enabled"
+msgstr "已启用"
+
+msgid "Settings"
+msgstr "设置"
+
+msgid "Quick setup"
+msgstr "常用设置"
+
+msgid "Advanced settings"
+msgstr "高级设置"
+
+msgid "Enable service"
+msgstr "启用服务"
+
+msgid "MQTT server"
+msgstr "MQTT 服务器"
+
+msgid "Example: tcp://192.168.1.10:1883"
+msgstr "示例：tcp://192.168.1.10:1883"
+
+msgid "Enter the MQTT server before enabling the service."
+msgstr "启用服务前，请先填写 MQTT 服务器。"
+
+msgid "Username"
+msgstr "用户名"
+
+msgid "Password"
+msgstr "密码"
+
+msgid "Leave empty to keep the saved password."
+msgstr "留空表示保持已保存的密码不变。"
+
+msgid "Topic prefix"
+msgstr "主题前缀"
+
+msgid "Test saved connection"
+msgstr "测试已保存的连接"
+
+msgid "Save and apply your changes before testing. No event will be published."
+msgstr "测试前请先保存并应用更改。测试不会发布业务事件。"
+
+msgid "MQTT connection succeeded in %d ms."
+msgstr "MQTT 连接成功，耗时 %d 毫秒。"
+
+msgid "The saved MQTT configuration is invalid."
+msgstr "已保存的 MQTT 配置无效。"
+
+msgid "The MQTT connection timed out."
+msgstr "MQTT 连接超时。"
+
+msgid "The MQTT connection failed."
+msgstr "MQTT 连接失败。"
+
+msgid "The MQTT connection test failed."
+msgstr "MQTT 连接测试失败。"
+
+msgid "Router ID"
+msgstr "路由器标识"
+
+msgid "Leave empty to use the system hostname."
+msgstr "留空则使用系统主机名。"
+
+msgid "Capture interface"
+msgstr "监听接口"
+
+msgid "The capture interface must not be empty."
+msgstr "监听接口不能为空。"
+
+msgid "Client ID"
+msgstr "客户端 ID"
+
+msgid "Leave empty to use the Router ID."
+msgstr "留空则使用路由器标识。"
+
+msgid "Device connected event"
+msgstr "设备接入事件"
+
+msgid "Publish an event after a device obtains a DHCP address. Normal renewals are ignored."
+msgstr "设备通过 DHCP 获取地址后发布接入事件，正常续租不会重复发布。"
+
+msgid "Connection timeout"
+msgstr "连接超时"
+
+msgid "Enter a positive duration such as 500ms, 10s, 1m, or 1h30m."
+msgstr "请输入大于零的时长，例如 500ms、10s、1m 或 1h30m。"
+
+msgid "Log level"
+msgstr "日志级别"
+
+msgid "Debug"
+msgstr "调试"
+
+msgid "Info"
+msgstr "信息"
+
+msgid "Warning"
+msgstr "警告"
+
+msgid "Error"
+msgstr "错误"
+
+msgid "Event queue capacity"
+msgstr "事件队列容量"
+
+msgid "Reload service"
+msgstr "重载服务"
+
+msgid "Validate the saved configuration and restart the service."
+msgstr "验证已保存的配置并重新启动服务。"
+
+msgid "Service reload failed."
+msgstr "服务重载失败。"
+
+msgid "Service reloaded successfully."
+msgstr "服务已成功重载。"
+
+msgid "Version"
+msgstr "版本"
+
+msgid "Unknown"
+msgstr "未知"
