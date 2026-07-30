@@ -71,6 +71,7 @@ func TestLuCISettingsPage(t *testing.T) {
 
 	for _, expected := range []string{
 		"new form.Map('openwrt2mqtt'",
+		"_('Publish OpenWrt system events to MQTT.')",
 		"form.NamedSection, 'main', 'openwrt2mqtt'",
 		"s.tab('quick', _('Quick setup'))",
 		"s.tab('events', _('Event settings'))",
@@ -125,6 +126,7 @@ func TestLuCISettingsPage(t *testing.T) {
 		"fs.read(",
 		"/etc/init.d/openwrt2mqtt",
 		"OPENWRT2MQTT_MQTT_PASSWORD",
+		"_('Configure MQTT and enable the service. Advanced options already have safe defaults.')",
 		"_('Event reporting')",
 		"_('Test saved connection')",
 		"_('Topic prefix')",
@@ -206,6 +208,8 @@ func TestLuCISimplifiedChineseTranslation(t *testing.T) {
 		"Language: zh_Hans",
 		"msgid \"OpenWrt to MQTT\"",
 		"msgstr \"OpenWrt to MQTT\"",
+		"msgid \"Publish OpenWrt system events to MQTT.\"",
+		"msgstr \"将OpenWrt系统事件发布到MQTT\"",
 		"msgid \"Quick setup\"",
 		"msgstr \"常用设置\"",
 		"msgid \"Event settings\"",
@@ -230,6 +234,8 @@ func TestLuCISimplifiedChineseTranslation(t *testing.T) {
 	}
 
 	for _, forbidden := range []string{
+		"Configure MQTT and enable the service. Advanced options already have safe defaults.",
+		"配置 MQTT 服务器并启用服务。高级选项已提供安全的默认值。",
 		"Leave empty to keep the saved password.",
 		"Device connection message example",
 		"MQTT topic example",
