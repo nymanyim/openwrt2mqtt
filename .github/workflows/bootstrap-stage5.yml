@@ -75,12 +75,29 @@ jobs:
           ln -s "${GITHUB_WORKSPACE}/package/luci-app-openwrt2mqtt" openwrt-sdk/package/luci-app-openwrt2mqtt
           make -C openwrt-sdk defconfig
 
-      - name: Build core and LuCI APKs
+      - name: Build core APK
         shell: bash
         run: |
-          set -euo pipefail
-          make -C openwrt-sdk package/openwrt2mqtt/compile OPENWRT2MQTT_SOURCE_DIR="${GITHUB_WORKSPACE}" V=s -j"$(nproc)"
-          make -C openwrt-sdk package/luci-app-openwrt2mqtt/compile OPENWRT2MQTT_SOURCE_DIR="${GITHUB_WORKSPACE}" V=s -j"$(nproc)"
+          set -o pipefail
+          make -C openwrt-sdk package/openwrt2mqtt/compile OPENWRT2MQTT_SOURCE_DIR="${GITHUB_WORKSPACE}" V=s -j"$(nproc)" 2>&1 | tee core-build.log
+          status=${PIPESTATUS[0]}
+          if [ "${status}" -ne 0 ]; then
+            message=$(tail -40 core-build.log | tr '\n' ' ' | sed 's/%/%25/g; s/\r/%0D/g; s/\n/%0A/g' | cut -c1-6000)
+            echo "::error file=package/openwrt2mqtt/Makefile,title=Core APK build failed::${message}"
+            exit "${status}"
+          fi
+
+      - name: Build LuCI APK
+        shell: bash
+        run: |
+          set -o pipefail
+          make -C openwrt-sdk package/luci-app-openwrt2mqtt/compile OPENWRT2MQTT_SOURCE_DIR="${GITHUB_WORKSPACE}" V=s -j"$(nproc)" 2>&1 | tee luci-build.log
+          status=${PIPESTATUS[0]}
+          if [ "${status}" -ne 0 ]; then
+            message=$(tail -40 luci-build.log | tr '\n' ' ' | sed 's/%/%25/g; s/\r/%0D/g; s/\n/%0A/g' | cut -c1-6000)
+            echo "::error file=package/luci-app-openwrt2mqtt/Makefile,title=LuCI APK build failed::${message}"
+            exit "${status}"
+          fi
 
       - name: Collect and verify APKs
         shell: bash
