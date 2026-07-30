@@ -141,7 +141,7 @@ return view.extend({
 		closeMessageExample();
 
 		m = new form.Map('openwrt2mqtt', _('OpenWrt to MQTT'),
-			_('Configure MQTT and enable the service. Advanced options already have safe defaults.'));
+			_('Publish OpenWrt system events to MQTT.'));
 
 		s = m.section(form.NamedSection, 'main', 'openwrt2mqtt', _('Status'));
 		s.anonymous = true;
