@@ -94,7 +94,7 @@ jobs:
           ln -s "${GITHUB_WORKSPACE}/package/openwrt2mqtt" openwrt-sdk/package/openwrt2mqtt
           ln -s "${GITHUB_WORKSPACE}/package/luci-app-openwrt2mqtt" openwrt-sdk/package/luci-app-openwrt2mqtt
           make -C openwrt-sdk defconfig
-          openwrt-sdk/scripts/config --file openwrt-sdk/.config --module PACKAGE_luci-i18n-openwrt2mqtt-zh-cn
+          printf '%s\n' 'CONFIG_PACKAGE_luci-i18n-openwrt2mqtt-zh-cn=m' >> openwrt-sdk/.config
           make -C openwrt-sdk defconfig
 
       - name: Build core, LuCI, and Simplified Chinese APKs
