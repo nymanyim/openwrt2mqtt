@@ -79,42 +79,48 @@ jobs:
         shell: bash
         run: |
           set -o pipefail
-          make -C openwrt-sdk package/openwrt2mqtt/compile OPENWRT2MQTT_SOURCE_DIR="${GITHUB_WORKSPACE}" V=s -j"$(nproc)" 2>&1 | tee core-build.log
-          status=${PIPESTATUS[0]}
-          if [ "${status}" -ne 0 ]; then
-            message=$(tail -40 core-build.log | tr '\n' ' ' | sed 's/%/%25/g; s/\r/%0D/g; s/\n/%0A/g' | cut -c1-6000)
-            echo "::error file=package/openwrt2mqtt/Makefile,title=Core APK build failed::${message}"
-            exit "${status}"
-          fi
+          make -C openwrt-sdk package/openwrt2mqtt/compile \
+            OPENWRT2MQTT_SOURCE_DIR="${GITHUB_WORKSPACE}" V=s -j"$(nproc)" \
+            2>&1 | tee core-build.log
 
       - name: Build LuCI APK
+        id: luci
+        continue-on-error: true
         shell: bash
         run: |
           set -o pipefail
-          make -C openwrt-sdk package/luci-app-openwrt2mqtt/compile OPENWRT2MQTT_SOURCE_DIR="${GITHUB_WORKSPACE}" V=s -j"$(nproc)" 2>&1 | tee luci-build.log
-          status=${PIPESTATUS[0]}
-          if [ "${status}" -ne 0 ]; then
-            message=$(tail -40 luci-build.log | tr '\n' ' ' | sed 's/%/%25/g; s/\r/%0D/g; s/\n/%0A/g' | cut -c1-6000)
-            echo "::error file=package/luci-app-openwrt2mqtt/Makefile,title=LuCI APK build failed::${message}"
-            exit "${status}"
-          fi
+          make -C openwrt-sdk package/luci-app-openwrt2mqtt/compile \
+            OPENWRT2MQTT_SOURCE_DIR="${GITHUB_WORKSPACE}" V=s -j"$(nproc)" \
+            2>&1 | tee luci-build.log
 
-      - name: Collect and verify APKs
+      - name: Collect build diagnostics
+        if: always()
         shell: bash
         run: |
           set -euo pipefail
-          mkdir -p artifacts
+          mkdir -p diagnostics
+          cp -v core-build.log diagnostics/ 2>/dev/null || true
+          cp -v luci-build.log diagnostics/ 2>/dev/null || true
           find openwrt-sdk/bin/packages -type f \
             \( -name 'openwrt2mqtt-*.apk' -o -name 'luci-app-openwrt2mqtt-*.apk' \) \
-            -exec cp -v {} artifacts/ \;
-          test "$(find artifacts -maxdepth 1 -type f -name '*.apk' | wc -l)" -eq 2
-          find artifacts -maxdepth 1 -type f -name '*.apk' -print0 | sort -z | xargs -0 sha256sum | tee artifacts/SHA256SUMS
-          file artifacts/*.apk | tee artifacts/FILE_TYPES.txt
+            -exec cp -v {} diagnostics/ \;
+          find diagnostics -maxdepth 1 -type f -name '*.apk' -print0 \
+            | sort -z \
+            | xargs -0 -r sha256sum \
+            | tee diagnostics/SHA256SUMS
 
-      - name: Upload APK artifacts
+      - name: Upload build diagnostics
+        if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: openwrt2mqtt-1.0.0-openwrt-25.12.5-rockchip-armv8
-          path: artifacts/
+          name: openwrt2mqtt-stage5-diagnostics
+          path: diagnostics/
           if-no-files-found: error
           retention-days: 14
+
+      - name: Verify build result
+        if: always()
+        shell: bash
+        run: |
+          test "${{ steps.luci.outcome }}" = "success"
+          test "$(find diagnostics -maxdepth 1 -type f -name '*.apk' | wc -l)" -eq 2
