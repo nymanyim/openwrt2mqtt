@@ -8,7 +8,7 @@ on:
       - .github/workflows/bootstrap-stage5.yml
 
 permissions:
-  contents: write
+  contents: read
 
 env:
   OPENWRT_VERSION: "25.12.5"
@@ -17,16 +17,14 @@ env:
   SDK_ARCHIVE: "openwrt-sdk-25.12.5-rockchip-armv8_gcc-14.3.0_musl.Linux-x86_64.tar.zst"
 
 jobs:
-  sync-and-build:
+  build:
     runs-on: ubuntu-24.04
     timeout-minutes: 90
     steps:
       - name: Check out staging branch
         uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
 
-      - name: Restore and commit complete source tree
+      - name: Restore complete source tree
         shell: bash
         run: |
           set -euo pipefail
@@ -34,12 +32,6 @@ jobs:
           echo "c14bb38d767296bcb8ef7d8913adc6e6f315238cfc8a9290d2eab0f21b7a4d5d  /tmp/openwrt2mqtt-source.tar.gz" | sha256sum --check --strict -
           tar -xzf /tmp/openwrt2mqtt-source.tar.gz
           rm -rf _sync /tmp/openwrt2mqtt-source.tar.gz
-          git restore --source=HEAD --staged --worktree .github/workflows
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add --all
-          git commit -m "stage5: add OpenWrt APK package sources"
-          git push origin HEAD:stage5/openwrt-apk-build
 
       - name: Set up Go
         uses: actions/setup-go@v5
