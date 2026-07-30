@@ -12,8 +12,8 @@ msgstr "消息示例"
 msgid "OpenWrt to MQTT"
 msgstr "OpenWrt to MQTT"
 
-msgid "Configure MQTT and enable the service. Advanced options already have safe defaults."
-msgstr "配置 MQTT 服务器并启用服务。高级选项已提供安全的默认值。"
+msgid "Publish OpenWrt system events to MQTT."
+msgstr "将OpenWrt系统事件发布到MQTT"
 
 msgid "Status"
 msgstr "运行状态"
