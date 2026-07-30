@@ -64,6 +64,7 @@ validate_runtime_config() {
 	esac
 	is_positive_integer "$bus_capacity" || validation_error "bus_capacity must be a positive integer" || return 1
 	is_positive_duration "$timeout" || validation_error "MQTT timeout must be a positive Go duration" || return 1
+	is_positive_duration "$offline_timeout" || validation_error "offline timeout must be a positive Go duration" || return 1
 }
 
 configured() {
@@ -76,7 +77,7 @@ validate() {
 	load_runtime_config || return 1
 	[ "$enabled" -eq 1 ] || return 0
 	validate_runtime_config || return 1
-	[ "$device_connected_enabled" -eq 0 ] || [ -n "$broker" ] || validation_error "MQTT broker must not be empty when device connection events are enabled" || return 1
+	[ "$device_connected_enabled" -eq 0 ] && [ "$device_disconnected_enabled" -eq 0 ] || [ -n "$broker" ] || validation_error "MQTT broker must not be empty when device events are enabled" || return 1
 }
 
 set_runtime_environment() {
@@ -85,6 +86,8 @@ set_runtime_environment() {
 	export OPENWRT2MQTT_LOG_LEVEL="$log_level"
 	export OPENWRT2MQTT_BUS_CAPACITY="$bus_capacity"
 	export OPENWRT2MQTT_EVENT_DEVICE_CONNECTED_ENABLED="$device_connected_enabled"
+	export OPENWRT2MQTT_EVENT_DEVICE_DISCONNECTED_ENABLED="$device_disconnected_enabled"
+	export OPENWRT2MQTT_OFFLINE_TIMEOUT="$offline_timeout"
 	export OPENWRT2MQTT_MQTT_BROKER="$broker"
 	export OPENWRT2MQTT_MQTT_CLIENT_ID="$client_id"
 	export OPENWRT2MQTT_MQTT_USERNAME="$username"
