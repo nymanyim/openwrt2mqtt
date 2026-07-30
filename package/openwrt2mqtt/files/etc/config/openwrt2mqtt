@@ -8,6 +8,10 @@ config openwrt2mqtt 'main'
 config event 'network_device_connected'
 	option enabled '1'
 
+config event 'network_device_disconnected'
+	option enabled '1'
+	option offline_timeout '5s'
+
 config mqtt 'mqtt'
 	option broker '127.0.0.1:1883'
 	option client_id ''
