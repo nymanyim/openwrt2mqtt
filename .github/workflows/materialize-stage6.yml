@@ -48,13 +48,10 @@ jobs:
           set -euo pipefail
           rm -rf _sync
           rm -f .github/workflows/bootstrap-stage5.yml
-          git checkout -- \
-            .github/workflows/build-openwrt.yml \
-            .github/workflows/materialize-stage6.yml \
-            .gitignore
+          git checkout -- .github/workflows .gitignore
           git add -A -- \
             .gitignore LICENSE Makefile README.md go.mod go.sum \
-            cmd internal package tests .github/workflows/README.md
+            cmd internal package tests
           git diff --cached --stat
           test -n "$(git diff --cached --name-only)"
 
