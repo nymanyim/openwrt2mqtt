@@ -6,46 +6,41 @@ import (
 	"encoding/binary"
 	"syscall"
 	"testing"
-	"time"
 )
 
-func TestParseReachableNeighbor(t *testing.T) {
-	message := fixtureNeighborMessage(rtmNewNeighbor, nudReachable, 7)
-	event := parseMessage("router-a", "br-lan", 7, message, time.Now())
-	if event == nil || event.Type != "device.connected" {
-		t.Fatalf("unexpected event: %#v", event)
-	}
-	if event.Data["mac"] != "02:11:22:33:44:55" || event.Data["ip"] != "192.168.1.50" {
-		t.Fatalf("unexpected data: %#v", event.Data)
-	}
-}
-
-func TestParseFailedNeighbor(t *testing.T) {
-	event := parseMessage("router-a", "br-lan", 7, fixtureNeighborMessage(rtmNewNeighbor, nudFailed, 7), time.Now())
-	if event == nil || event.Type != "device.disconnected" {
-		t.Fatalf("unexpected event: %#v", event)
+func TestParseActiveNeighbor(t *testing.T) {
+	for _, state := range []uint16{nudReachable, nudStale, nudDelay, nudProbe, nudPermanent} {
+		observed := parseNeighbor(7, fixtureNeighborMessage(rtmNewNeighbor, state, 7))
+		if observed == nil || !observed.active {
+			t.Fatalf("state %#x was not active: %#v", state, observed)
+		}
+		if observed.mac.String() != "02:11:22:33:44:55" || observed.ip.String() != "192.168.1.50" {
+			t.Fatalf("unexpected observation: %#v", observed)
+		}
 	}
 }
-
-func TestParseNeighborIgnoresOtherInterfaceAndStaleState(t *testing.T) {
-	if parseMessage("router-a", "br-lan", 8, fixtureNeighborMessage(rtmNewNeighbor, nudReachable, 7), time.Now()) != nil {
+func TestParseInactiveNeighbor(t *testing.T) {
+	for _, message := range []syscall.NetlinkMessage{fixtureNeighborMessage(rtmNewNeighbor, nudIncomplete, 7), fixtureNeighborMessage(rtmNewNeighbor, nudFailed, 7), fixtureNeighborMessage(rtmDelNeighbor, 0, 7)} {
+		observed := parseNeighbor(7, message)
+		if observed == nil || observed.active {
+			t.Fatalf("unexpected observation: %#v", observed)
+		}
+	}
+}
+func TestParseNeighborIgnoresOtherInterface(t *testing.T) {
+	if parseNeighbor(8, fixtureNeighborMessage(rtmNewNeighbor, nudReachable, 7)) != nil {
 		t.Fatal("accepted another interface")
 	}
-	if parseMessage("router-a", "br-lan", 7, fixtureNeighborMessage(rtmNewNeighbor, 0x04, 7), time.Now()) != nil {
-		t.Fatal("accepted stale state")
-	}
 }
-
 func fixtureNeighborMessage(messageType, state uint16, interfaceIndex int32) syscall.NetlinkMessage {
 	header := make([]byte, neighborHeaderSize)
 	header[0] = syscall.AF_INET
 	binary.NativeEndian.PutUint32(header[4:8], uint32(interfaceIndex))
 	binary.NativeEndian.PutUint16(header[8:10], state)
-	attributes := append(routeAttribute(ndaDestination, []byte{192, 168, 1, 50}), routeAttribute(ndaLinkAddress, []byte{0x02, 0x11, 0x22, 0x33, 0x44, 0x55})...)
+	attributes := append(routeAttribute(ndaDestination, []byte{192, 168, 1, 50}), routeAttribute(ndaLinkAddress, []byte{2, 17, 34, 51, 68, 85})...)
 	data := append(header, attributes...)
 	return syscall.NetlinkMessage{Header: syscall.NlMsghdr{Len: uint32(syscall.NLMSG_HDRLEN + len(data)), Type: messageType}, Data: data}
 }
-
 func routeAttribute(attributeType uint16, value []byte) []byte {
 	length := syscall.SizeofRtAttr + len(value)
 	aligned := (length + 3) &^ 3

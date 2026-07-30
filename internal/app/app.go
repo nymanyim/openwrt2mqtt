@@ -29,7 +29,7 @@ func New(version string) *App {
 }
 
 func NewRuntime(ctx context.Context, version string, runtimeConfig config.Runtime) (*App, error) {
-	if !runtimeConfig.DeviceConnectedEnabled {
+	if !runtimeConfig.DeviceConnectedEnabled && !runtimeConfig.DeviceDisconnectedEnabled {
 		return New(version), nil
 	}
 
@@ -52,9 +52,9 @@ func NewRuntime(ctx context.Context, version string, runtimeConfig config.Runtim
 		collector: collector.NewMulti(
 			dhcp.NewCollector(runtimeConfig.Interface, runtimeConfig.RouterID),
 			hostapd.NewCollector(runtimeConfig.RouterID),
-			neighbor.NewCollector(runtimeConfig.Interface, runtimeConfig.RouterID),
+			neighbor.NewCollector(runtimeConfig.Interface, runtimeConfig.RouterID, runtimeConfig.OfflineTimeout, runtimeConfig.DeviceDisconnectedEnabled),
 		),
-		pipeline:  pipeline.New(eventBus, output, processor.NewDeviceState()),
+		pipeline:  pipeline.New(eventBus, output, processor.NewDeviceState(runtimeConfig.DeviceConnectedEnabled, runtimeConfig.DeviceDisconnectedEnabled)),
 		publisher: output,
 	}, nil
 }

@@ -2,22 +2,28 @@ package processor
 
 import (
 	"context"
+	"github.com/nymanyim/openwrt2mqtt/internal/event"
 	"strings"
 	"sync"
-
-	"github.com/nymanyim/openwrt2mqtt/internal/event"
 )
 
-// DeviceState suppresses repeated device state events from multiple collectors.
 type DeviceState struct {
-	mu     sync.Mutex
-	states map[string]string
+	mu                  sync.Mutex
+	states              map[string]string
+	connectedEnabled    bool
+	disconnectedEnabled bool
 }
 
-func NewDeviceState() *DeviceState {
-	return &DeviceState{states: make(map[string]string)}
+func NewDeviceState(enabled ...bool) *DeviceState {
+	connected, disconnected := true, true
+	if len(enabled) > 0 {
+		connected = enabled[0]
+	}
+	if len(enabled) > 1 {
+		disconnected = enabled[1]
+	}
+	return &DeviceState{states: make(map[string]string), connectedEnabled: connected, disconnectedEnabled: disconnected}
 }
-
 func (p *DeviceState) Process(_ context.Context, message event.Event) (event.Event, bool, error) {
 	if message.Type != "device.connected" && message.Type != "device.disconnected" {
 		return message, true, nil
@@ -29,10 +35,14 @@ func (p *DeviceState) Process(_ context.Context, message event.Event) (event.Eve
 	}
 	state := strings.TrimPrefix(message.Type, "device.")
 	p.mu.Lock()
-	defer p.mu.Unlock()
 	if p.states[mac] == state {
+		p.mu.Unlock()
 		return message, false, nil
 	}
 	p.states[mac] = state
-	return message, true, nil
+	p.mu.Unlock()
+	if state == "connected" {
+		return message, p.connectedEnabled, nil
+	}
+	return message, p.disconnectedEnabled, nil
 }
