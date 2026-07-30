@@ -7,8 +7,11 @@ import (
 	"github.com/nymanyim/openwrt2mqtt/internal/bus/memory"
 	"github.com/nymanyim/openwrt2mqtt/internal/collector"
 	"github.com/nymanyim/openwrt2mqtt/internal/collector/dhcp"
+	"github.com/nymanyim/openwrt2mqtt/internal/collector/hostapd"
+	"github.com/nymanyim/openwrt2mqtt/internal/collector/neighbor"
 	"github.com/nymanyim/openwrt2mqtt/internal/config"
 	"github.com/nymanyim/openwrt2mqtt/internal/pipeline"
+	"github.com/nymanyim/openwrt2mqtt/internal/processor"
 	"github.com/nymanyim/openwrt2mqtt/internal/publisher"
 	mqttPublisher "github.com/nymanyim/openwrt2mqtt/internal/publisher/mqtt"
 )
@@ -45,9 +48,13 @@ func NewRuntime(ctx context.Context, version string, runtimeConfig config.Runtim
 
 	eventBus := memory.New(runtimeConfig.BusCapacity)
 	return &App{
-		version:   version,
-		collector: dhcp.NewCollector(runtimeConfig.Interface, runtimeConfig.RouterID),
-		pipeline:  pipeline.New(eventBus, output),
+		version: version,
+		collector: collector.NewMulti(
+			dhcp.NewCollector(runtimeConfig.Interface, runtimeConfig.RouterID),
+			hostapd.NewCollector(runtimeConfig.RouterID),
+			neighbor.NewCollector(runtimeConfig.Interface, runtimeConfig.RouterID),
+		),
+		pipeline:  pipeline.New(eventBus, output, processor.NewDeviceState()),
 		publisher: output,
 	}, nil
 }
