@@ -24,13 +24,32 @@ jobs:
           repository: nymanyim/openwrt2mqtt
           run-id: 30505003362
 
-      - name: Expose LuCI build errors
+      - name: Extract LuCI compiler failure
         shell: bash
         run: |
           set -euo pipefail
-          test -s diagnostics/luci-build.log
-          tail -80 diagnostics/luci-build.log | while IFS= read -r line; do
-            message=$(printf '%s' "${line}" | sed 's/%/%25/g; s/\r/%0D/g; s/\n/%0A/g')
-            echo "::error file=package/luci-app-openwrt2mqtt/Makefile::${message}"
-          done
+          log=diagnostics/luci-build.log
+          test -s "${log}"
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+
+          lines = Path("diagnostics/luci-build.log").read_text(errors="replace").splitlines()
+          pattern = re.compile(
+              r"(^FAILED:|\berror:|\bfatal error:|undefined reference|cannot find|not found|No such file|collect2:)",
+              re.IGNORECASE,
+          )
+          matches = [index for index, line in enumerate(lines) if pattern.search(line)]
+          if not matches:
+              start = max(0, len(lines) - 160)
+              selected = lines[start:]
+          else:
+              start = max(0, matches[0] - 12)
+              end = min(len(lines), matches[0] + 28)
+              selected = lines[start:end]
+
+          message = " | ".join(selected)
+          message = message.replace("%", "%25").replace("\r", "%0D").replace("\n", "%0A")
+          print(f"::error file=package/luci-app-openwrt2mqtt/Makefile,title=LuCI compiler failure::{message[:6000]}")
+          PY
           exit 1
