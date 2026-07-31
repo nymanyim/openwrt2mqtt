@@ -7,10 +7,11 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
-	"github.com/nymanyim/openwrt2mqtt/internal/collector"
 	"net"
 	"syscall"
 	"time"
+
+	"github.com/nymanyim/openwrt2mqtt/internal/collector"
 )
 
 const (
