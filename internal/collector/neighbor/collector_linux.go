@@ -42,6 +42,7 @@ type deviceState struct {
 	mac              net.HardwareAddr
 	data             map[string]any
 	online           bool
+	verified         bool
 	reconnectPending bool
 	failedSince      time.Time
 }
@@ -145,7 +146,7 @@ func (c *Collector) loadSnapshot(fd, interfaceIndex int, states map[string]*devi
 			}
 			observed := parseNeighbor(interfaceIndex, message)
 			if observed != nil && observed.active {
-				states[observed.mac.String()] = newDeviceState(c.interfaceName, observed)
+				states[observed.mac.String()] = newDeviceState(c.interfaceName, observed, false)
 			}
 		}
 		if done {
@@ -162,7 +163,7 @@ func (c *Collector) handleMessage(ctx context.Context, emitter collector.Emitter
 	current := states[key]
 	now := time.Now()
 	if current == nil {
-		current = newDeviceState(c.interfaceName, observed)
+		current = newDeviceState(c.interfaceName, observed, true)
 		states[key] = current
 		return c.emit(ctx, emitter, current, "device.connected", now)
 	}
@@ -225,6 +226,13 @@ func (c *Collector) probeDevices(ctx context.Context, emitter collector.Emitter,
 }
 
 func applyProbeResult(state *deviceState, online bool, started, checked time.Time, probeInterval, offlineTimeout time.Duration) (string, bool) {
+	if !state.verified {
+		state.failedSince = time.Time{}
+		if online {
+			state.verified = true
+		}
+		return "", false
+	}
 	if online {
 		state.failedSince = time.Time{}
 		if !state.online && state.reconnectPending {
@@ -262,7 +270,7 @@ func (c *Collector) emit(ctx context.Context, emitter collector.Emitter, state *
 	}
 	return nil
 }
-func newDeviceState(interfaceName string, observed *neighborObservation) *deviceState {
-	return &deviceState{ip: observed.ip, mac: observed.mac, data: neighborData(interfaceName, observed.ip, observed.mac), online: true}
+func newDeviceState(interfaceName string, observed *neighborObservation, verified bool) *deviceState {
+	return &deviceState{ip: observed.ip, mac: observed.mac, data: neighborData(interfaceName, observed.ip, observed.mac), online: true, verified: verified}
 }
 func nativeUint16(value []byte) uint16 { return binary.NativeEndian.Uint16(value) }
