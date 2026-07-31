@@ -54,6 +54,14 @@ func TestLuCIMenuAndACL(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	connectedIndex := strings.Index(text, "'_device_event_enabled'")
+	interfaceIndex := strings.Index(text, "form.Value, 'interface'")
+	disconnectedIndex := strings.Index(text, "'_device_disconnected_enabled'")
+	offlineIndex := strings.Index(text, "'_offline_timeout'")
+	if connectedIndex < 0 || interfaceIndex < connectedIndex || disconnectedIndex < interfaceIndex || offlineIndex < disconnectedIndex {
+		t.Fatal("event options must be ordered connection, interface, disconnection, offline timeout")
+	}
+
 	for _, forbidden := range []string{`"file"`, `"exec"`, `"network"`, `"firewall"`, `"dhcp"`} {
 		if strings.Contains(string(content), forbidden) {
 			t.Fatalf("ACL contains forbidden permission %s", forbidden)
@@ -82,8 +90,10 @@ func TestLuCISettingsPage(t *testing.T) {
 		"o.placeholder = '127.0.0.1:1883'",
 		"return uci.get('openwrt2mqtt', 'mqtt', 'broker') || '127.0.0.1:1883'",
 		"bindOption(s.taboption('events', form.Flag, '_device_event_enabled'",
-		"attachMessageExampleButton(node)",
-		`[data-name="_device_event_enabled"] > .cbi-value-title`,
+		"attachMessageExampleButton(node, '_device_event_enabled', 'device.connected')",
+		"attachMessageExampleButton(node, '_device_disconnected_enabled', 'device.disconnected')",
+		`'[data-name="' + optionName + '"] > .cbi-value-title'`,
+		"'data-event-type': eventType",
 		"data-openwrt2mqtt-message-example-button",
 		"'aria-label': _('View message example')",
 		"ui.showModal(_('Message example'), [",
@@ -142,6 +152,9 @@ func TestLuCISettingsPage(t *testing.T) {
 		"_('Message schema version, currently 1.')",
 		"openwrt2mqtt/OpenWrt/network/device/connected",
 		"E('dl'",
+		"transaction_id: '1234abcd'",
+		"server_ip: '192.168.1.1'",
+		"source: 'dhcp/br-lan'",
 	} {
 		if strings.Contains(text, forbidden) {
 			t.Fatalf("settings page contains forbidden string %q", forbidden)
@@ -170,18 +183,18 @@ func TestLuCISettingsPage(t *testing.T) {
 		"overlay.removeEventListener('click', messageExampleOverlayHandler)",
 		"messageExampleButton.setAttribute('aria-expanded', 'true')",
 		"messageExampleButton.setAttribute('aria-expanded', 'false')",
-		"JSON.stringify(createMessageExample(), null, 2)",
+		"JSON.stringify(createMessageExample(messageExampleButton.dataset.eventType), null, 2)",
 		"schema_version: '1'",
 		"event_id: '8f69af77935d0b4a1902c203179348fa'",
 		"router_id: 'OpenWrt'",
 		"category: 'network'",
-		"type: 'device.connected'",
-		"source: 'dhcp/br-lan'",
-		"mac: 'AA:BB:CC:DD:EE:FF'",
-		"transaction_id: '1234abcd'",
+		"type: eventType",
+		"source: 'neighbor/br-lan'",
+		"connection_type: 'network'",
+		"interface: 'br-lan'",
+		"mac: 'aa:bb:cc:dd:ee:ff'",
 		"ip: '192.168.1.100'",
 		"hostname: 'example-device'",
-		"server_ip: '192.168.1.1'",
 	} {
 		if !strings.Contains(text, expected) {
 			t.Fatalf("message example is missing %q", expected)
