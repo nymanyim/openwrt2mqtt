@@ -15,31 +15,35 @@ import (
 )
 
 const (
-	netlinkRoute        = 0
-	rtmNewNeighbor      = 28
-	rtmDelNeighbor      = 29
-	rtmGetNeighbor      = 30
-	rtmGroupNeighbor    = 4
-	nudIncomplete       = 0x01
-	nudReachable        = 0x02
-	nudStale            = 0x04
-	nudDelay            = 0x08
-	nudProbe            = 0x10
-	nudFailed           = 0x20
-	nudNoARP            = 0x40
-	nudPermanent        = 0x80
-	ndaDestination      = 1
-	ndaLinkAddress      = 2
-	netlinkBufferSize   = 64 * 1024
-	maxConcurrentProbes = 8
+	netlinkRoute         = 0
+	rtmNewNeighbor       = 28
+	rtmDelNeighbor       = 29
+	rtmGetNeighbor       = 30
+	rtmGroupNeighbor     = 4
+	nudIncomplete        = 0x01
+	nudReachable         = 0x02
+	nudStale             = 0x04
+	nudDelay             = 0x08
+	nudProbe             = 0x10
+	nudFailed            = 0x20
+	nudNoARP             = 0x40
+	nudPermanent         = 0x80
+	ndaDestination       = 1
+	ndaLinkAddress       = 2
+	netlinkBufferSize    = 64 * 1024
+	maxConcurrentProbes  = 8
+	confirmationAttempts = 3
+	confirmationTimeout  = 400 * time.Millisecond
+	confirmationInterval = 100 * time.Millisecond
 )
 
 type deviceState struct {
-	ip          net.IP
-	mac         net.HardwareAddr
-	data        map[string]any
-	online      bool
-	failedSince time.Time
+	ip               net.IP
+	mac              net.HardwareAddr
+	data             map[string]any
+	online           bool
+	reconnectPending bool
+	failedSince      time.Time
 }
 type Collector struct {
 	interfaceName, routerID string
@@ -162,21 +166,21 @@ func (c *Collector) handleMessage(ctx context.Context, emitter collector.Emitter
 		states[key] = current
 		return c.emit(ctx, emitter, current, "device.connected", now)
 	}
-	wasOnline := current.online
 	current.ip = observed.ip
 	current.mac = observed.mac
 	current.data = neighborData(c.interfaceName, observed.ip, observed.mac)
-	current.online = true
-	current.failedSince = time.Time{}
-	if !wasOnline {
-		return c.emit(ctx, emitter, current, "device.connected", now)
+	if !current.online {
+		current.reconnectPending = true
+		return nil
 	}
+	current.failedSince = time.Time{}
 	return nil
 }
 func (c *Collector) probeDevices(ctx context.Context, emitter collector.Emitter, device *net.Interface, sourceIP net.IP, states map[string]*deviceState) error {
 	type probeResult struct {
 		state   *deviceState
 		online  bool
+		started time.Time
 		checked time.Time
 	}
 
@@ -184,46 +188,74 @@ func (c *Collector) probeDevices(ctx context.Context, emitter collector.Emitter,
 	semaphore := make(chan struct{}, maxConcurrentProbes)
 	pending := 0
 	for _, state := range states {
-		if !state.online {
+		if !state.online && !state.reconnectPending {
 			continue
 		}
 		pending++
 		go func(state *deviceState) {
 			semaphore <- struct{}{}
+			started := time.Now()
 			online := probeARP(device, sourceIP, state.ip, state.mac, 250*time.Millisecond)
+			checked := time.Now()
 			<-semaphore
-			results <- probeResult{state: state, online: online, checked: time.Now()}
+			results <- probeResult{state: state, online: online, started: started, checked: checked}
 		}(state)
 	}
 
 	for range pending {
 		result := <-results
-		if !applyProbeResult(result.state, result.online, result.checked, c.offlineTimeout) {
+		eventType, confirmOffline := applyProbeResult(result.state, result.online, result.started, result.checked, c.probeInterval, c.offlineTimeout)
+		if confirmOffline {
+			if confirmARP(device, sourceIP, result.state.ip, result.state.mac) {
+				result.state.failedSince = time.Time{}
+				continue
+			}
+			result.state.online = false
+			result.state.failedSince = time.Time{}
+			eventType = "device.disconnected"
+		}
+		if eventType == "" {
 			continue
 		}
-		if err := c.emit(ctx, emitter, result.state, "device.disconnected", result.checked); err != nil {
+		if err := c.emit(ctx, emitter, result.state, eventType, time.Now()); err != nil {
 			return err
 		}
 	}
 	return nil
 }
 
-func applyProbeResult(state *deviceState, online bool, checked time.Time, offlineTimeout time.Duration) bool {
+func applyProbeResult(state *deviceState, online bool, started, checked time.Time, probeInterval, offlineTimeout time.Duration) (string, bool) {
 	if online {
 		state.failedSince = time.Time{}
-		return false
+		if !state.online && state.reconnectPending {
+			state.online = true
+			state.reconnectPending = false
+			return "device.connected", false
+		}
+		return "", false
+	}
+	if !state.online {
+		state.reconnectPending = false
+		return "", false
 	}
 	if state.failedSince.IsZero() {
-		state.failedSince = checked
-		return false
+		state.failedSince = started.Add(-probeInterval)
 	}
-	if checked.Sub(state.failedSince) < offlineTimeout {
-		return false
-	}
-	state.online = false
-	state.failedSince = time.Time{}
-	return true
+	return "", !checked.Before(state.failedSince.Add(offlineTimeout))
 }
+
+func confirmARP(device *net.Interface, sourceIP, targetIP net.IP, targetMAC net.HardwareAddr) bool {
+	for attempt := 0; attempt < confirmationAttempts; attempt++ {
+		if probeARP(device, sourceIP, targetIP, targetMAC, confirmationTimeout) {
+			return true
+		}
+		if attempt+1 < confirmationAttempts {
+			time.Sleep(confirmationInterval)
+		}
+	}
+	return false
+}
+
 func (c *Collector) emit(ctx context.Context, emitter collector.Emitter, state *deviceState, eventType string, now time.Time) error {
 	if err := emitter.Emit(ctx, newEvent(c.routerID, c.interfaceName, eventType, state.data, now)); err != nil {
 		return fmt.Errorf("emit neighbor event: %w", err)
