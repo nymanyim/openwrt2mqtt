@@ -40,6 +40,21 @@ function bindOption(option, sectionName, optionName) {
 	return option;
 }
 
+function bindSecondsOption(option, sectionName, optionName) {
+	option.cfgvalue = function() {
+		var value = uci.get('openwrt2mqtt', sectionName, optionName);
+		var match = typeof value === 'string' ? /^([1-9][0-9]*)s$/.exec(value) : null;
+		return match !== null ? match[1] : value;
+	};
+	option.write = function(sectionId, value) {
+		uci.set('openwrt2mqtt', sectionName, optionName, value + 's');
+	};
+	option.remove = function() {
+		uci.unset('openwrt2mqtt', sectionName, optionName);
+	};
+	return option;
+}
+
 function addStatus(section, optionName, title, value) {
 	var option = section.option(form.DummyValue, optionName, title);
 	option.cfgvalue = function() { return value; };
@@ -117,13 +132,36 @@ function attachMessageExampleButton(node, optionName, eventType) {
 	if (title === null)
 		return;
 
+	var titleText = title.textContent.trim();
+	var titleContent = E('span', {
+		'data-openwrt2mqtt-event-title': 'true',
+		'style': 'display:inline-flex;align-items:center;gap:.5em;min-height:30px;vertical-align:middle'
+	});
+	while (title.firstChild !== null)
+		titleContent.appendChild(title.firstChild);
+
+	title.removeAttribute('for');
+	title.style.paddingTop = '0';
+	title.appendChild(titleContent);
+
 	if (checkbox !== null) {
-		var checkboxControl = checkbox.closest('label') || checkbox;
-		checkboxControl.style.marginLeft = '.5em';
-		title.appendChild(checkboxControl);
+		var checkboxControl = checkbox.closest('.cbi-checkbox');
+		var checkboxLabel = checkboxControl !== null ? checkboxControl.querySelector(':scope > label[for]') : null;
+		if (checkboxControl !== null) {
+			if (checkboxLabel !== null)
+				checkboxLabel.remove();
+			checkbox.setAttribute('aria-label', titleText);
+			checkboxControl.style.display = 'inline-flex';
+			checkboxControl.style.alignItems = 'center';
+			checkboxControl.style.flex = '0 0 auto';
+			checkboxControl.style.height = 'auto';
+			checkboxControl.style.margin = '0';
+			checkbox.style.margin = '0';
+			titleContent.appendChild(checkboxControl);
+		}
 	}
 
-	title.appendChild(E('button', {
+	titleContent.appendChild(E('button', {
 		'type': 'button',
 		'class': 'cbi-button',
 		'title': _('View message example'),
@@ -131,9 +169,24 @@ function attachMessageExampleButton(node, optionName, eventType) {
 		'aria-expanded': 'false',
 		'data-event-type': eventType,
 		'data-openwrt2mqtt-message-example-button': 'true',
-		'style': 'margin-left:.5em;padding:0 .35em;min-width:auto;line-height:1.3;vertical-align:middle',
+		'style': 'margin:0;padding:0 .35em;min-width:auto;line-height:1.3;display:inline-flex;align-items:center;justify-content:center;flex:0 0 auto',
 		'click': toggleMessageExample
 	}, 'ⓘ'));
+}
+
+function configurePositiveIntegerInput(node, optionName) {
+	var row = node.querySelector('[data-name="' + optionName + '"]');
+	var input = row !== null ? row.querySelector(':scope > .cbi-value-field input[type="text"]') : null;
+	if (input === null)
+		return;
+
+	input.setAttribute('inputmode', 'numeric');
+	input.setAttribute('pattern', '[0-9]*');
+	input.addEventListener('input', function() {
+		var digits = input.value.replace(/[^0-9]/g, '');
+		if (digits !== input.value)
+			input.value = digits;
+	}, true);
 }
 
 return view.extend({
@@ -252,14 +305,15 @@ return view.extend({
 		o.default = o.enabled;
 		o.rmempty = false;
 
-		o = bindOption(s.taboption('events', form.Value, '_offline_timeout', _('Offline time')),
+		o = bindSecondsOption(s.taboption('events', form.Value, '_offline_timeout', _('Offline time (seconds)')),
 			'network_device_disconnected', 'offline_timeout');
-		o.default = '5s';
+		o.default = '5';
+		o.datatype = 'and(uinteger,min(1))';
 		o.rmempty = false;
 		o.depends('_device_disconnected_enabled', '1');
 		o.validate = function(sectionId, value) {
-			return /^(?:[0-9]+(?:\.[0-9]+)?(?:ns|us|µs|μs|ms|s|m|h))+$/.test(value) && /[1-9]/.test(value)
-				? true : _('Offline time must be a positive duration, for example 5s.');
+			return /^[1-9][0-9]*$/.test(value)
+				? true : _('Offline time must be a positive integer number of seconds.');
 		};
 
 		o = s.taboption('advanced', form.ListValue, 'log_level', _('Log level'));
@@ -278,6 +332,7 @@ return view.extend({
 		return m.render().then(function(node) {
 			attachMessageExampleButton(node, '_device_event_enabled', 'device.connected');
 			attachMessageExampleButton(node, '_device_disconnected_enabled', 'device.disconnected');
+			configurePositiveIntegerInput(node, '_offline_timeout');
 			return node;
 		});
 	}
