@@ -8,6 +8,23 @@ on:
         required: true
         default: false
         type: boolean
+  issue_comment:
+    types:
+      - created
+  pull_request:
+    branches:
+      - main
+    paths:
+      - ".github/workflows/build-openwrt.yml"
+      - "cmd/**"
+      - "internal/**"
+      - "package/**"
+      - "tests/**"
+      - "go.mod"
+      - "go.sum"
+      - "LICENSE"
+      - "Makefile"
+      - "README.md"
   push:
     branches:
       - main
@@ -26,9 +43,10 @@ on:
 
 permissions:
   contents: read
+  pull-requests: read
 
 concurrency:
-  group: openwrt-apk-${{ github.ref }}
+  group: openwrt-apk-${{ github.event_name }}-${{ github.event.issue.number || github.ref }}
   cancel-in-progress: true
 
 env:
@@ -39,7 +57,12 @@ env:
 
 jobs:
   test:
-    name: Go tests
+    name: Basic checks
+    if: >-
+      github.event_name != 'issue_comment' ||
+      (github.event.issue.pull_request &&
+      github.event.comment.body == '/build' &&
+      contains(fromJSON('["OWNER","MEMBER","COLLABORATOR"]'), github.event.comment.author_association))
     runs-on: ubuntu-24.04
     outputs:
       package_version: ${{ steps.package.outputs.version }}
@@ -47,6 +70,9 @@ jobs:
     steps:
       - name: Check out source
         uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event_name == 'issue_comment' && format('refs/pull/{0}/merge', github.event.issue.number) || github.ref }}
+          persist-credentials: false
 
       - name: Validate release request
         if: ${{ github.event_name == 'workflow_dispatch' && inputs.release }}
@@ -73,8 +99,19 @@ jobs:
           go-version-file: go.mod
           cache: true
 
-      - name: Run tests
-        run: go test ./...
+      - name: Run basic checks
+        shell: bash
+        run: |
+          set -euo pipefail
+          unformatted="$(gofmt -l .)"
+          if [ -n "${unformatted}" ]; then
+            printf 'Unformatted Go files:\n%s\n' "${unformatted}" >&2
+            exit 1
+          fi
+          go test ./...
+          go vet ./...
+          node --check package/luci-app-openwrt2mqtt/htdocs/luci-static/resources/view/openwrt2mqtt/settings.js
+          sh -n package/openwrt2mqtt/files/etc/init.d/openwrt2mqtt
 
   build:
     name: OpenWrt 25.12.5 rockchip/armv8
