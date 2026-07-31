@@ -28,7 +28,7 @@ var callTestMQTT = rpc.declare({
 });
 
 function bindOption(option, sectionName, optionName) {
-	option.cfgvalue = function() {
+	option.load = function() {
 		return uci.get('openwrt2mqtt', sectionName, optionName);
 	};
 	option.write = function(sectionId, value) {
@@ -41,7 +41,7 @@ function bindOption(option, sectionName, optionName) {
 }
 
 function bindSecondsOption(option, sectionName, optionName) {
-	option.cfgvalue = function() {
+	option.load = function() {
 		var value = uci.get('openwrt2mqtt', sectionName, optionName);
 		var match = typeof value === 'string' ? /^([1-9][0-9]*)s$/.exec(value) : null;
 		return match !== null ? match[1] : value;
@@ -57,7 +57,7 @@ function bindSecondsOption(option, sectionName, optionName) {
 
 function addStatus(section, optionName, title, value) {
 	var option = section.option(form.DummyValue, optionName, title);
-	option.cfgvalue = function() { return value; };
+	option.load = function() { return value; };
 }
 
 function createMessageExample(eventType) {
@@ -129,7 +129,7 @@ function attachMessageExampleButton(node, optionName, eventType) {
 	var row = node.querySelector('[data-name="' + optionName + '"]');
 	var title = row !== null ? row.querySelector(':scope > .cbi-value-title') : null;
 	var checkbox = row !== null ? row.querySelector(':scope > .cbi-value-field input[type="checkbox"]') : null;
-	if (title === null)
+	if (title === null || row.querySelector('[data-openwrt2mqtt-message-example-button="true"]') !== null)
 		return;
 
 	var titleText = title.textContent.trim();
@@ -182,11 +182,22 @@ function configurePositiveIntegerInput(node, optionName) {
 
 	input.setAttribute('inputmode', 'numeric');
 	input.setAttribute('pattern', '[0-9]*');
+	if (input.dataset.openwrt2mqttPositiveInteger === 'true')
+		return;
+
+	input.dataset.openwrt2mqttPositiveInteger = 'true';
 	input.addEventListener('input', function() {
 		var digits = input.value.replace(/[^0-9]/g, '');
 		if (digits !== input.value)
 			input.value = digits;
 	}, true);
+}
+
+function enhanceSettingsForm(node) {
+	attachMessageExampleButton(node, '_device_event_enabled', 'device.connected');
+	attachMessageExampleButton(node, '_device_disconnected_enabled', 'device.disconnected');
+	configurePositiveIntegerInput(node, '_offline_timeout');
+	return node;
 }
 
 return view.extend({
@@ -204,6 +215,10 @@ return view.extend({
 
 		m = new form.Map('openwrt2mqtt', _('OpenWrt to MQTT'),
 			_('Publish OpenWrt system events to MQTT.'));
+		var renderContents = m.renderContents.bind(m);
+		m.renderContents = function() {
+			return renderContents().then(enhanceSettingsForm);
+		};
 
 		s = m.section(form.NamedSection, 'main', 'openwrt2mqtt', _('Status'));
 		s.anonymous = true;
@@ -245,7 +260,7 @@ return view.extend({
 			'mqtt', 'broker');
 		o.default = '127.0.0.1:1883';
 		o.placeholder = '127.0.0.1:1883';
-		o.cfgvalue = function() {
+		o.load = function() {
 			return uci.get('openwrt2mqtt', 'mqtt', 'broker') || '127.0.0.1:1883';
 		};
 		o.rmempty = false;
@@ -256,7 +271,7 @@ return view.extend({
 		o = s.taboption('quick', form.Value, '_password', _('Password'));
 		o.password = true;
 		o.optional = true;
-		o.cfgvalue = function() { return ''; };
+		o.load = function() { return ''; };
 		o.write = function(sectionId, value) {
 			if (value)
 				uci.set('openwrt2mqtt', 'mqtt', 'password', value);
@@ -293,8 +308,8 @@ return view.extend({
 		o = s.taboption('events', form.Value, 'interface', _('Capture interface'));
 		o.default = 'br-lan';
 		o.rmempty = false;
+		o.retain = true;
 		o.depends('_device_event_enabled', '1');
-		o.depends('_device_disconnected_enabled', '1');
 		o.validate = function(sectionId, value) {
 			return value ? true : _('The capture interface must not be empty.');
 		};
@@ -310,6 +325,7 @@ return view.extend({
 		o.default = '5';
 		o.datatype = 'and(uinteger,min(1))';
 		o.rmempty = false;
+		o.retain = true;
 		o.depends('_device_disconnected_enabled', '1');
 		o.validate = function(sectionId, value) {
 			return /^[1-9][0-9]*$/.test(value)
@@ -329,11 +345,6 @@ return view.extend({
 		o.default = '128';
 		o.rmempty = false;
 
-		return m.render().then(function(node) {
-			attachMessageExampleButton(node, '_device_event_enabled', 'device.connected');
-			attachMessageExampleButton(node, '_device_disconnected_enabled', 'device.disconnected');
-			configurePositiveIntegerInput(node, '_offline_timeout');
-			return node;
-		});
+		return m.render();
 	}
 });

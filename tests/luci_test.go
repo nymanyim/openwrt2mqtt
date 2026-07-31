@@ -79,12 +79,19 @@ func TestLuCISettingsPage(t *testing.T) {
 		"s.tab('advanced', _('Advanced settings'))",
 		"s.taboption('quick', form.Flag, 'enabled'",
 		"bindOption(s.taboption('quick', form.Value, '_broker'",
+		"bindOption(s.taboption('quick', form.Value, '_username'",
+		"option.load = function() {",
 		"o.default = '127.0.0.1:1883'",
 		"o.placeholder = '127.0.0.1:1883'",
 		"return uci.get('openwrt2mqtt', 'mqtt', 'broker') || '127.0.0.1:1883'",
 		"bindOption(s.taboption('events', form.Flag, '_device_event_enabled'",
+		"bindOption(s.taboption('events', form.Flag, '_device_disconnected_enabled'",
+		"function enhanceSettingsForm(node)",
 		"attachMessageExampleButton(node, '_device_event_enabled', 'device.connected')",
 		"attachMessageExampleButton(node, '_device_disconnected_enabled', 'device.disconnected')",
+		"var renderContents = m.renderContents.bind(m)",
+		"m.renderContents = function() {",
+		"return renderContents().then(enhanceSettingsForm)",
 		`node.querySelector('[data-name="' + optionName + '"]')`,
 		"row.querySelector(':scope > .cbi-value-title')",
 		`row.querySelector(':scope > .cbi-value-field input[type="checkbox"]')`,
@@ -104,8 +111,10 @@ func TestLuCISettingsPage(t *testing.T) {
 		"clickEvent.target === overlay",
 		"messageExampleButton.style.zIndex = '901'",
 		"s.taboption('events', form.Value, 'interface'",
+		"o.retain = true",
 		"o.depends('_device_event_enabled', '1')",
 		"bindSecondsOption(s.taboption('events', form.Value, '_offline_timeout', _('Offline time (seconds)'))",
+		"o.depends('_device_disconnected_enabled', '1')",
 		"return match !== null ? match[1] : value",
 		"uci.set('openwrt2mqtt', sectionName, optionName, value + 's')",
 		"o.default = '5'",
@@ -123,7 +132,7 @@ func TestLuCISettingsPage(t *testing.T) {
 		"method: 'reload'",
 		"method: 'test_mqtt'",
 		"o.password = true",
-		"o.cfgvalue = function() { return ''; }",
+		"o.load = function() { return ''; }",
 		"o.remove = function() {}",
 		"if (value)",
 		"uci.set('openwrt2mqtt', 'mqtt', 'password', value)",
@@ -142,16 +151,34 @@ func TestLuCISettingsPage(t *testing.T) {
 	if quickIndex < 0 || eventsIndex < quickIndex || advancedIndex < eventsIndex {
 		t.Fatal("settings tabs must be ordered quick, events, advanced")
 	}
-
-	connectedIndex := strings.Index(text, "'_device_event_enabled'")
-	interfaceIndex := strings.Index(text, "form.Value, 'interface'")
-	disconnectedIndex := strings.Index(text, "'_device_disconnected_enabled'")
-	offlineIndex := strings.Index(text, "'_offline_timeout'")
+	connectedIndex := strings.Index(text, "bindOption(s.taboption('events', form.Flag, '_device_event_enabled'")
+	interfaceIndex := strings.Index(text, "s.taboption('events', form.Value, 'interface'")
+	disconnectedIndex := strings.Index(text, "bindOption(s.taboption('events', form.Flag, '_device_disconnected_enabled'")
+	offlineIndex := strings.Index(text, "bindSecondsOption(s.taboption('events', form.Value, '_offline_timeout'")
 	if connectedIndex < 0 || interfaceIndex < connectedIndex || disconnectedIndex < interfaceIndex || offlineIndex < disconnectedIndex {
 		t.Fatal("event options must be ordered connection, interface, disconnection, offline timeout")
 	}
 
+	interfaceBlock := text[interfaceIndex:disconnectedIndex]
+	if strings.Count(interfaceBlock, "o.depends('_device_event_enabled', '1')") != 1 ||
+		strings.Contains(interfaceBlock, "o.depends('_device_disconnected_enabled', '1')") ||
+		!strings.Contains(interfaceBlock, "o.retain = true") {
+		t.Fatal("capture interface must depend only on device connection and retain its saved value while hidden")
+	}
+
+	advancedOptionIndex := strings.Index(text, "s.taboption('advanced', form.ListValue, 'log_level'")
+	if advancedOptionIndex < offlineIndex {
+		t.Fatal("advanced options must follow event options")
+	}
+	offlineBlock := text[offlineIndex:advancedOptionIndex]
+	if strings.Count(offlineBlock, "o.depends('_device_disconnected_enabled', '1')") != 1 ||
+		strings.Contains(offlineBlock, "o.depends('_device_event_enabled', '1')") ||
+		!strings.Contains(offlineBlock, "o.retain = true") {
+		t.Fatal("offline time must depend only on device disconnection and retain its saved value while hidden")
+	}
+
 	for _, forbidden := range []string{
+		".cfgvalue = function",
 		"uci.get('openwrt2mqtt', 'mqtt', 'password')",
 		"fs.exec(",
 		"fs.read(",
