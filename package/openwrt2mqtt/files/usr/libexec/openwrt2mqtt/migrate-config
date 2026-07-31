@@ -1,0 +1,20 @@
+#!/bin/sh
+
+changed=0
+
+if ! uci -q get openwrt2mqtt.network_device_disconnected >/dev/null; then
+	uci -q set openwrt2mqtt.network_device_disconnected=event || exit 1
+	changed=1
+fi
+
+if ! uci -q get openwrt2mqtt.network_device_disconnected.enabled >/dev/null; then
+	uci -q set openwrt2mqtt.network_device_disconnected.enabled='1' || exit 1
+	changed=1
+fi
+
+if ! uci -q get openwrt2mqtt.network_device_disconnected.offline_timeout >/dev/null; then
+	uci -q set openwrt2mqtt.network_device_disconnected.offline_timeout='5s' || exit 1
+	changed=1
+fi
+
+[ "$changed" -eq 0 ] || uci -q commit openwrt2mqtt

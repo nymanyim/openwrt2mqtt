@@ -80,6 +80,9 @@ func TestLuCISettingsPage(t *testing.T) {
 		"s.taboption('quick', form.Flag, 'enabled'",
 		"bindOption(s.taboption('quick', form.Value, '_broker'",
 		"bindOption(s.taboption('quick', form.Value, '_username'",
+		"function ensureSection(sectionName, sectionType)",
+		"uci.add('openwrt2mqtt', sectionType, sectionName)",
+		"ensureSection(sectionName, sectionType)",
 		"option.load = function() {",
 		"o.default = '127.0.0.1:1883'",
 		"o.placeholder = '127.0.0.1:1883'",
@@ -114,6 +117,7 @@ func TestLuCISettingsPage(t *testing.T) {
 		"o.retain = true",
 		"o.depends('_device_event_enabled', '1')",
 		"bindSecondsOption(s.taboption('events', form.Value, '_offline_timeout', _('Offline time (seconds)'))",
+		"'network_device_disconnected', 'offline_timeout', 'event'",
 		"o.depends('_device_disconnected_enabled', '1')",
 		"return match !== null ? match[1] : value",
 		"uci.set('openwrt2mqtt', sectionName, optionName, value + 's')",
@@ -260,6 +264,68 @@ func TestLuCISettingsPage(t *testing.T) {
 	}
 }
 
+func TestLuCIOfflineTimeoutCreatesMissingSection(t *testing.T) {
+	node, err := exec.LookPath("node")
+	if err != nil {
+		t.Skip("node is unavailable")
+	}
+
+	path := repoPath(t, "package", "luci-app-openwrt2mqtt", "htdocs", "luci-static", "resources", "view", "openwrt2mqtt", "settings.js")
+	script := `
+const fs = require('fs');
+const vm = require('vm');
+const source = fs.readFileSync(process.argv[1], 'utf8');
+const start = source.indexOf('function ensureSection');
+const end = source.indexOf('function addStatus');
+if (start < 0 || end <= start)
+	throw new Error('unable to locate mapped option helpers');
+
+const sections = {};
+const additions = [];
+const context = {
+	uci: {
+		get: function(config, section, option) {
+			if (arguments.length === 2)
+				return sections[section] || null;
+			return sections[section] ? sections[section][option] : null;
+		},
+		add: function(config, type, section) {
+			additions.push([config, type, section]);
+			sections[section] = { '.type': type };
+			return section;
+		},
+		set: function(config, section, option, value) {
+			if (sections[section])
+				sections[section][option] = value;
+		},
+		unset: function(config, section, option) {
+			if (sections[section])
+				delete sections[section][option];
+		}
+	}
+};
+vm.runInNewContext(source.slice(start, end) + '\nthis.bindSecondsOption = bindSecondsOption;', context);
+
+const option = {};
+context.bindSecondsOption(option, 'network_device_disconnected', 'offline_timeout', 'event');
+option.write('main', '17');
+if (additions.length !== 1 || additions[0].join('/') !== 'openwrt2mqtt/event/network_device_disconnected')
+	throw new Error('missing named event section was not created correctly: ' + JSON.stringify(additions));
+if (sections.network_device_disconnected.offline_timeout !== '17s')
+	throw new Error('offline timeout was not written after creating the section');
+
+option.write('main', '30');
+if (additions.length !== 1)
+	throw new Error('existing section was created more than once');
+if (sections.network_device_disconnected.offline_timeout !== '30s')
+	throw new Error('existing offline timeout was not updated');
+`
+	command := exec.Command(node, "-e", script, path)
+	if output, err := command.CombinedOutput(); err != nil {
+		t.Fatalf("offline timeout helper: %v\n%s", err, output)
+	}
+}
+
 func TestLuCISimplifiedChineseTranslation(t *testing.T) {
 	path := repoPath(t, "package", "luci-app-openwrt2mqtt", "po", "zh_Hans", "openwrt2mqtt.po")
 	content, err := os.ReadFile(path)
@@ -350,14 +416,18 @@ func TestOpenWrtPackageMakefiles(t *testing.T) {
 	checks := map[string][]string{
 		repoPath(t, "package", "openwrt2mqtt", "Makefile"): {
 			"PKG_VERSION:=1.0.0",
+			"PKG_RELEASE:=2",
 			"GO_PKG_BUILD_PKG:=$(GO_PKG)/cmd/openwrt2mqtt",
 			"GO_PKG_LDFLAGS_X:=main.version=$(PKG_VERSION)",
 			"DEPENDS:=$(GO_ARCH_DEPENDS) +ca-bundle +procd +rpcd +uci",
 			"/etc/config/openwrt2mqtt",
 			"$(INSTALL_BIN) $(GO_PKG_BUILD_BIN_DIR)/openwrt2mqtt $(1)/usr/sbin/openwrt2mqtt",
+			"$(INSTALL_BIN) ./files/usr/libexec/openwrt2mqtt/migrate-config $(1)/usr/libexec/openwrt2mqtt/migrate-config",
+			"/usr/libexec/openwrt2mqtt/migrate-config || exit 1",
 		},
 		repoPath(t, "package", "luci-app-openwrt2mqtt", "Makefile"): {
 			"PKG_VERSION:=1.0.0",
+			"PKG_RELEASE:=2",
 			"LUCI_DEPENDS:=+luci-base +openwrt2mqtt",
 			"include $(TOPDIR)/feeds/luci/luci.mk",
 		},

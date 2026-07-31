@@ -27,11 +27,17 @@ var callTestMQTT = rpc.declare({
 	expect: { '': {} }
 });
 
-function bindOption(option, sectionName, optionName) {
+function ensureSection(sectionName, sectionType) {
+	if (uci.get('openwrt2mqtt', sectionName) == null)
+		uci.add('openwrt2mqtt', sectionType, sectionName);
+}
+
+function bindOption(option, sectionName, optionName, sectionType) {
 	option.load = function() {
 		return uci.get('openwrt2mqtt', sectionName, optionName);
 	};
 	option.write = function(sectionId, value) {
+		ensureSection(sectionName, sectionType);
 		uci.set('openwrt2mqtt', sectionName, optionName, value);
 	};
 	option.remove = function() {
@@ -40,13 +46,14 @@ function bindOption(option, sectionName, optionName) {
 	return option;
 }
 
-function bindSecondsOption(option, sectionName, optionName) {
+function bindSecondsOption(option, sectionName, optionName, sectionType) {
 	option.load = function() {
 		var value = uci.get('openwrt2mqtt', sectionName, optionName);
 		var match = typeof value === 'string' ? /^([1-9][0-9]*)s$/.exec(value) : null;
 		return match !== null ? match[1] : value;
 	};
 	option.write = function(sectionId, value) {
+		ensureSection(sectionName, sectionType);
 		uci.set('openwrt2mqtt', sectionName, optionName, value + 's');
 	};
 	option.remove = function() {
@@ -257,7 +264,7 @@ return view.extend({
 
 		o = bindOption(s.taboption('quick', form.Value, '_broker', _('MQTT server'),
 			_('Enter a host and port. tcp:// is added automatically when no protocol is specified.')),
-			'mqtt', 'broker');
+			'mqtt', 'broker', 'mqtt');
 		o.default = '127.0.0.1:1883';
 		o.placeholder = '127.0.0.1:1883';
 		o.load = function() {
@@ -265,7 +272,7 @@ return view.extend({
 		};
 		o.rmempty = false;
 
-		o = bindOption(s.taboption('quick', form.Value, '_username', _('Username')), 'mqtt', 'username');
+		o = bindOption(s.taboption('quick', form.Value, '_username', _('Username')), 'mqtt', 'username', 'mqtt');
 		o.optional = true;
 
 		o = s.taboption('quick', form.Value, '_password', _('Password'));
@@ -273,8 +280,10 @@ return view.extend({
 		o.optional = true;
 		o.load = function() { return ''; };
 		o.write = function(sectionId, value) {
-			if (value)
+			if (value) {
+				ensureSection('mqtt', 'mqtt');
 				uci.set('openwrt2mqtt', 'mqtt', 'password', value);
+			}
 		};
 		o.remove = function() {};
 
@@ -301,7 +310,7 @@ return view.extend({
 
 		deviceConnectionEnabled = bindOption(s.taboption('events', form.Flag, '_device_event_enabled',
 			_('Device connection'), _('Publish an event when a device is first observed or reconnects.')),
-			'network_device_connected', 'enabled');
+			'network_device_connected', 'enabled', 'event');
 		deviceConnectionEnabled.default = deviceConnectionEnabled.enabled;
 		deviceConnectionEnabled.rmempty = false;
 
@@ -316,12 +325,12 @@ return view.extend({
 
 		o = bindOption(s.taboption('events', form.Flag, '_device_disconnected_enabled',
 			_('Device disconnection'), _('Publish an event after a device remains unreachable for the configured offline time.')),
-			'network_device_disconnected', 'enabled');
+			'network_device_disconnected', 'enabled', 'event');
 		o.default = o.enabled;
 		o.rmempty = false;
 
 		o = bindSecondsOption(s.taboption('events', form.Value, '_offline_timeout', _('Offline time (seconds)')),
-			'network_device_disconnected', 'offline_timeout');
+			'network_device_disconnected', 'offline_timeout', 'event');
 		o.default = '5';
 		o.datatype = 'and(uinteger,min(1))';
 		o.rmempty = false;
