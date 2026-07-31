@@ -27,7 +27,7 @@ func probeARP(device *net.Interface, sourceIP, targetIP net.IP, targetMAC net.Ha
 	}
 	deadline := time.Now().Add(timeout)
 	packet := make([]byte, arpPacketSize)
-	copy(packet[0:6], []byte{255, 255, 255, 255, 255, 255})
+	copy(packet[0:6], targetMAC)
 	copy(packet[6:12], device.HardwareAddr)
 	binary.BigEndian.PutUint16(packet[12:14], etherTypeARP)
 	binary.BigEndian.PutUint16(packet[14:16], 1)
@@ -36,8 +36,11 @@ func probeARP(device *net.Interface, sourceIP, targetIP net.IP, targetMAC net.Ha
 	binary.BigEndian.PutUint16(packet[20:22], 1)
 	copy(packet[22:28], device.HardwareAddr)
 	copy(packet[28:32], sourceIP.To4())
+	copy(packet[32:38], targetMAC)
 	copy(packet[38:42], targetIP.To4())
-	if syscall.Sendto(fd, packet, 0, &syscall.SockaddrLinklayer{Protocol: htons(etherTypeARP), Ifindex: device.Index, Halen: 6, Addr: [8]uint8{255, 255, 255, 255, 255, 255}}) != nil {
+	var destination [8]uint8
+	copy(destination[:], targetMAC)
+	if syscall.Sendto(fd, packet, 0, &syscall.SockaddrLinklayer{Protocol: htons(etherTypeARP), Ifindex: device.Index, Halen: 6, Addr: destination}) != nil {
 		return false
 	}
 	buffer := make([]byte, 256)
