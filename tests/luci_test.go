@@ -54,13 +54,6 @@ func TestLuCIMenuAndACL(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	connectedIndex := strings.Index(text, "'_device_event_enabled'")
-	interfaceIndex := strings.Index(text, "form.Value, 'interface'")
-	disconnectedIndex := strings.Index(text, "'_device_disconnected_enabled'")
-	offlineIndex := strings.Index(text, "'_offline_timeout'")
-	if connectedIndex < 0 || interfaceIndex < connectedIndex || disconnectedIndex < interfaceIndex || offlineIndex < disconnectedIndex {
-		t.Fatal("event options must be ordered connection, interface, disconnection, offline timeout")
-	}
 
 	for _, forbidden := range []string{`"file"`, `"exec"`, `"network"`, `"firewall"`, `"dhcp"`} {
 		if strings.Contains(string(content), forbidden) {
@@ -128,6 +121,14 @@ func TestLuCISettingsPage(t *testing.T) {
 	advancedIndex := strings.Index(text, "s.tab('advanced', _('Advanced settings'))")
 	if quickIndex < 0 || eventsIndex < quickIndex || advancedIndex < eventsIndex {
 		t.Fatal("settings tabs must be ordered quick, events, advanced")
+	}
+
+	connectedIndex := strings.Index(text, "'_device_event_enabled'")
+	interfaceIndex := strings.Index(text, "form.Value, 'interface'")
+	disconnectedIndex := strings.Index(text, "'_device_disconnected_enabled'")
+	offlineIndex := strings.Index(text, "'_offline_timeout'")
+	if connectedIndex < 0 || interfaceIndex < connectedIndex || disconnectedIndex < interfaceIndex || offlineIndex < disconnectedIndex {
+		t.Fatal("event options must be ordered connection, interface, disconnection, offline timeout")
 	}
 
 	for _, forbidden := range []string{
