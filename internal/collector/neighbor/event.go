@@ -5,11 +5,12 @@ import (
 	"encoding/binary"
 	"encoding/hex"
 	"fmt"
-	"github.com/nymanyim/openwrt2mqtt/internal/event"
 	"net"
 	"strings"
 	"syscall"
 	"time"
+
+	"github.com/nymanyim/openwrt2mqtt/internal/event"
 )
 
 const neighborHeaderSize = 12
@@ -44,10 +45,17 @@ func parseNeighbor(interfaceIndex int, message syscall.NetlinkMessage) *neighbor
 		}
 		offset += (length + 3) &^ 3
 	}
-	if o.ip == nil || len(o.mac) != 6 {
+	if !isUnicastNeighbor(o.ip, o.mac) {
 		return nil
 	}
 	return o
+}
+
+func isUnicastNeighbor(ip net.IP, mac net.HardwareAddr) bool {
+	ip4 := ip.To4()
+	return ip4 != nil && !ip4.IsUnspecified() && !ip4.IsMulticast() &&
+		!ip4.Equal(net.IPv4bcast) && len(mac) == 6 && mac[0]&1 == 0 &&
+		(mac[0]|mac[1]|mac[2]|mac[3]|mac[4]|mac[5]) != 0
 }
 func neighborData(interfaceName string, ip net.IP, mac net.HardwareAddr) map[string]any {
 	data := map[string]any{"connection_type": "network", "interface": interfaceName, "ip": ip.String(), "mac": strings.ToLower(mac.String())}
