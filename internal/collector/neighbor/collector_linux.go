@@ -119,6 +119,7 @@ func (c *Collector) Start(ctx context.Context, emitter collector.Emitter) error 
 		}
 	}
 }
+
 func (c *Collector) loadSnapshot(fd, interfaceIndex int, states map[string]*deviceState) error {
 	request := make([]byte, syscall.NLMSG_HDRLEN+neighborHeaderSize)
 	binary.NativeEndian.PutUint32(request[0:4], uint32(len(request)))
