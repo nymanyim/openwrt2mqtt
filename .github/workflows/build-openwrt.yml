@@ -91,7 +91,8 @@ jobs:
           version="$(sed -n 's/^PKG_VERSION:=//p' package/openwrt2mqtt/Makefile)"
           test -n "${version}"
           echo "version=${version}" >> "${GITHUB_OUTPUT}"
-          echo "artifact_name=openwrt2mqtt-${version}-openwrt-${OPENWRT_VERSION}-${OPENWRT_TARGET}-${OPENWRT_SUBTARGET}" >> "${GITHUB_OUTPUT}"
+          short_sha="$(git rev-parse --short=7 HEAD)"
+          echo "artifact_name=openwrt2mqtt-${short_sha}" >> "${GITHUB_OUTPUT}"
 
       - name: Set up Go
         uses: actions/setup-go@v5
