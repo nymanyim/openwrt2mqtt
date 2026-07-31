@@ -7,29 +7,31 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
-	"github.com/nymanyim/openwrt2mqtt/internal/collector"
 	"net"
 	"syscall"
 	"time"
+
+	"github.com/nymanyim/openwrt2mqtt/internal/collector"
 )
 
 const (
-	netlinkRoute      = 0
-	rtmNewNeighbor    = 28
-	rtmDelNeighbor    = 29
-	rtmGetNeighbor    = 30
-	rtmGroupNeighbor  = 4
-	nudIncomplete     = 0x01
-	nudReachable      = 0x02
-	nudStale          = 0x04
-	nudDelay          = 0x08
-	nudProbe          = 0x10
-	nudFailed         = 0x20
-	nudNoARP          = 0x40
-	nudPermanent      = 0x80
-	ndaDestination    = 1
-	ndaLinkAddress    = 2
-	netlinkBufferSize = 64 * 1024
+	netlinkRoute        = 0
+	rtmNewNeighbor      = 28
+	rtmDelNeighbor      = 29
+	rtmGetNeighbor      = 30
+	rtmGroupNeighbor    = 4
+	nudIncomplete       = 0x01
+	nudReachable        = 0x02
+	nudStale            = 0x04
+	nudDelay            = 0x08
+	nudProbe            = 0x10
+	nudFailed           = 0x20
+	nudNoARP            = 0x40
+	nudPermanent        = 0x80
+	ndaDestination      = 1
+	ndaLinkAddress      = 2
+	netlinkBufferSize   = 64 * 1024
+	maxConcurrentProbes = 8
 )
 
 type deviceState struct {
@@ -76,7 +78,7 @@ func (c *Collector) Start(ctx context.Context, emitter collector.Emitter) error 
 	if err = syscall.Bind(fd, &syscall.SockaddrNetlink{Family: syscall.AF_NETLINK, Groups: rtmGroupNeighbor}); err != nil {
 		return err
 	}
-	if err = syscall.SetsockoptTimeval(fd, syscall.SOL_SOCKET, syscall.SO_RCVTIMEO, &syscall.Timeval{Sec: 1}); err != nil {
+	if err = syscall.SetsockoptTimeval(fd, syscall.SOL_SOCKET, syscall.SO_RCVTIMEO, &syscall.Timeval{Usec: 250000}); err != nil {
 		return err
 	}
 	states := make(map[string]*deviceState)
@@ -84,7 +86,7 @@ func (c *Collector) Start(ctx context.Context, emitter collector.Emitter) error 
 		return err
 	}
 	buffer := make([]byte, netlinkBufferSize)
-	lastProbe := time.Now()
+	nextProbe := time.Now().Add(c.probeInterval)
 	for {
 		length, _, readErr := syscall.Recvfrom(fd, buffer, 0)
 		if readErr == nil {
@@ -101,11 +103,14 @@ func (c *Collector) Start(ctx context.Context, emitter collector.Emitter) error 
 		} else if !errors.Is(readErr, syscall.EINTR) && !errors.Is(readErr, syscall.EAGAIN) && !errors.Is(readErr, syscall.EWOULDBLOCK) {
 			return readErr
 		}
-		if c.detectOffline && time.Since(lastProbe) >= c.probeInterval {
+		if c.detectOffline && !time.Now().Before(nextProbe) {
 			if err := c.probeDevices(ctx, emitter, device, sourceIP, states); err != nil {
 				return err
 			}
-			lastProbe = time.Now()
+			now := time.Now()
+			for !nextProbe.After(now) {
+				nextProbe = nextProbe.Add(c.probeInterval)
+			}
 		}
 	}
 }
@@ -169,29 +174,55 @@ func (c *Collector) handleMessage(ctx context.Context, emitter collector.Emitter
 	return nil
 }
 func (c *Collector) probeDevices(ctx context.Context, emitter collector.Emitter, device *net.Interface, sourceIP net.IP, states map[string]*deviceState) error {
-	now := time.Now()
+	type probeResult struct {
+		state   *deviceState
+		online  bool
+		checked time.Time
+	}
+
+	results := make(chan probeResult, len(states))
+	semaphore := make(chan struct{}, maxConcurrentProbes)
+	pending := 0
 	for _, state := range states {
 		if !state.online {
 			continue
 		}
-		if probeARP(device, sourceIP, state.ip, state.mac, 250*time.Millisecond) {
-			state.failedSince = time.Time{}
+		pending++
+		go func(state *deviceState) {
+			semaphore <- struct{}{}
+			online := probeARP(device, sourceIP, state.ip, state.mac, 250*time.Millisecond)
+			<-semaphore
+			results <- probeResult{state: state, online: online, checked: time.Now()}
+		}(state)
+	}
+
+	for range pending {
+		result := <-results
+		if !applyProbeResult(result.state, result.online, result.checked, c.offlineTimeout) {
 			continue
 		}
-		if state.failedSince.IsZero() {
-			state.failedSince = now
-			continue
-		}
-		if now.Sub(state.failedSince) < c.offlineTimeout {
-			continue
-		}
-		state.online = false
-		state.failedSince = time.Time{}
-		if err := c.emit(ctx, emitter, state, "device.disconnected", now); err != nil {
+		if err := c.emit(ctx, emitter, result.state, "device.disconnected", result.checked); err != nil {
 			return err
 		}
 	}
 	return nil
+}
+
+func applyProbeResult(state *deviceState, online bool, checked time.Time, offlineTimeout time.Duration) bool {
+	if online {
+		state.failedSince = time.Time{}
+		return false
+	}
+	if state.failedSince.IsZero() {
+		state.failedSince = checked
+		return false
+	}
+	if checked.Sub(state.failedSince) < offlineTimeout {
+		return false
+	}
+	state.online = false
+	state.failedSince = time.Time{}
+	return true
 }
 func (c *Collector) emit(ctx context.Context, emitter collector.Emitter, state *deviceState, eventType string, now time.Time) error {
 	if err := emitter.Emit(ctx, newEvent(c.routerID, c.interfaceName, eventType, state.data, now)); err != nil {
