@@ -26,6 +26,7 @@ config_get() {
 		main.interface) value="${CFG_INTERFACE-br-lan}" ;;
 		main.log_level) value="${CFG_LOG_LEVEL-info}" ;;
 		main.bus_capacity) value="${CFG_BUS_CAPACITY-128}" ;;
+		network_device_disconnected.offline_timeout) value="${CFG_OFFLINE_TIMEOUT-5s}" ;;
 		mqtt.broker) value="${CFG_BROKER-127.0.0.1:1883}" ;;
 		mqtt.client_id) value="${CFG_CLIENT_ID-client-a}" ;;
 		mqtt.username) value="${CFG_USERNAME-user-a}" ;;
@@ -106,18 +107,41 @@ func TestConfigMigrationAddsMissingDisconnectedSettings(t *testing.T) {
 }
 
 func TestConfigMigrationPreservesDisconnectedSettings(t *testing.T) {
-	state := map[string]string{
-		"openwrt2mqtt.network_device_disconnected":                 "event",
-		"openwrt2mqtt.network_device_disconnected.enabled":         "0",
-		"openwrt2mqtt.network_device_disconnected.offline_timeout": "30s",
-	}
+	for _, value := range []string{"3s", "3000ms", "0.05m", "30s"} {
+		t.Run(value, func(t *testing.T) {
+			state := map[string]string{
+				"openwrt2mqtt.network_device_disconnected":                 "event",
+				"openwrt2mqtt.network_device_disconnected.enabled":         "0",
+				"openwrt2mqtt.network_device_disconnected.offline_timeout": value,
+			}
 
-	if commits := runMigrationHarness(t, state); commits != 0 {
-		t.Fatalf("commit count = %d, want 0", commits)
+			if commits := runMigrationHarness(t, state); commits != 0 {
+				t.Fatalf("commit count = %d, want 0", commits)
+			}
+			if state["openwrt2mqtt.network_device_disconnected.enabled"] != "0" ||
+				state["openwrt2mqtt.network_device_disconnected.offline_timeout"] != value {
+				t.Fatalf("migration overwrote custom settings: %#v", state)
+			}
+		})
 	}
-	if state["openwrt2mqtt.network_device_disconnected.enabled"] != "0" ||
-		state["openwrt2mqtt.network_device_disconnected.offline_timeout"] != "30s" {
-		t.Fatalf("migration overwrote custom settings: %#v", state)
+}
+
+func TestConfigMigrationRaisesOfflineTimeoutToMinimum(t *testing.T) {
+	for _, value := range []string{"1s", "2s", "2999ms"} {
+		t.Run(value, func(t *testing.T) {
+			state := map[string]string{
+				"openwrt2mqtt.network_device_disconnected":                 "event",
+				"openwrt2mqtt.network_device_disconnected.enabled":         "1",
+				"openwrt2mqtt.network_device_disconnected.offline_timeout": value,
+			}
+
+			if commits := runMigrationHarness(t, state); commits != 1 {
+				t.Fatalf("commit count = %d, want 1", commits)
+			}
+			if got := state["openwrt2mqtt.network_device_disconnected.offline_timeout"]; got != "3s" {
+				t.Fatalf("offline timeout = %q, want 3s", got)
+			}
+		})
 	}
 }
 
@@ -132,6 +156,7 @@ func TestInitScriptMapsUCIToEnvironment(t *testing.T) {
 		"<OPENWRT2MQTT_LOG_LEVEL=info>",
 		"<OPENWRT2MQTT_BUS_CAPACITY=128>",
 		"<OPENWRT2MQTT_EVENT_DEVICE_CONNECTED_ENABLED=1>",
+		"<OPENWRT2MQTT_OFFLINE_TIMEOUT=5s>",
 		"<OPENWRT2MQTT_MQTT_BROKER=127.0.0.1:1883>",
 		"<OPENWRT2MQTT_MQTT_CLIENT_ID=client-a>",
 		"<OPENWRT2MQTT_MQTT_USERNAME=user-a>",
@@ -175,6 +200,37 @@ func TestInitScriptAcceptsGoDurations(t *testing.T) {
 		if err != nil {
 			t.Fatalf("timeout %q: %v\n%s", duration, err, output)
 		}
+	}
+}
+
+func TestInitScriptAcceptsMinimumOfflineTimeout(t *testing.T) {
+	for _, value := range []string{"3s", "3000ms", "0.05m"} {
+		t.Run(value, func(t *testing.T) {
+			output, err := runInitHarness(t, map[string]string{"CFG_OFFLINE_TIMEOUT": value})
+			if err != nil {
+				t.Fatalf("offline timeout %q: %v\n%s", value, err, output)
+			}
+			if !strings.Contains(output, "<OPENWRT2MQTT_OFFLINE_TIMEOUT="+value+">") {
+				t.Fatalf("minimum offline timeout was not exported:\n%s", output)
+			}
+		})
+	}
+}
+
+func TestInitScriptRejectsOfflineTimeoutBelowMinimum(t *testing.T) {
+	for _, value := range []string{"1s", "2s", "2999ms"} {
+		t.Run(value, func(t *testing.T) {
+			output, err := runInitHarness(t, map[string]string{"CFG_OFFLINE_TIMEOUT": value})
+			if err == nil {
+				t.Fatalf("start_service accepted offline timeout %q:\n%s", value, output)
+			}
+			if !strings.Contains(output, "offline timeout must be at least 3s") {
+				t.Fatalf("unexpected validation output:\n%s", output)
+			}
+			if strings.Contains(output, "PARAM <command>") {
+				t.Fatalf("invalid offline timeout registered a command:\n%s", output)
+			}
+		})
 	}
 }
 
@@ -432,6 +488,7 @@ esac
 		"PATH="+directory+string(os.PathListSeparator)+os.Getenv("PATH"),
 		"MIGRATION_STATE="+statePath,
 		"MIGRATION_COMMITS="+commitPath,
+		"OPENWRT2MQTT_INIT_SCRIPT="+initScriptPath(t),
 	)
 	if output, err := command.CombinedOutput(); err != nil {
 		t.Fatalf("migrate config: %v\n%s", err, output)
