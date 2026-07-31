@@ -15,21 +15,21 @@ import (
 )
 
 const (
-	netlinkRoute      = 0
-	rtmNewNeighbor    = 28
-	rtmDelNeighbor    = 29
-	rtmGetNeighbor    = 30
-	rtmGroupNeighbor  = 4
-	nudIncomplete     = 0x01
-	nudReachable      = 0x02
-	nudStale          = 0x04
-	nudDelay          = 0x08
-	nudProbe          = 0x10
-	nudFailed         = 0x20
-	nudNoARP          = 0x40
-	nudPermanent      = 0x80
-	ndaDestination    = 1
-	ndaLinkAddress    = 2
+	netlinkRoute        = 0
+	rtmNewNeighbor      = 28
+	rtmDelNeighbor      = 29
+	rtmGetNeighbor      = 30
+	rtmGroupNeighbor    = 4
+	nudIncomplete       = 0x01
+	nudReachable        = 0x02
+	nudStale            = 0x04
+	nudDelay            = 0x08
+	nudProbe            = 0x10
+	nudFailed           = 0x20
+	nudNoARP            = 0x40
+	nudPermanent        = 0x80
+	ndaDestination      = 1
+	ndaLinkAddress      = 2
 	netlinkBufferSize   = 64 * 1024
 	maxConcurrentProbes = 8
 )
