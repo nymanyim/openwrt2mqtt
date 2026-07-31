@@ -99,7 +99,9 @@ func TestPrepareReleaseVersionRejectsNonMainBranch(t *testing.T) {
 	if err != nil {
 		t.Skip("bash is unavailable")
 	}
-	output, err := exec.Command(bash, repoPath(t, ".github", "scripts", "prepare-release-version.sh")).CombinedOutput()
+	command := exec.Command(bash, repoPath(t, ".github", "scripts", "prepare-release-version.sh"))
+	command.Env = append(os.Environ(), "GITHUB_REF_NAME=test-branch")
+	output, err := command.CombinedOutput()
 	if err == nil {
 		t.Fatal("release version script accepted a non-main branch")
 	}
