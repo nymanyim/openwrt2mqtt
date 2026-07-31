@@ -3,33 +3,77 @@
 package neighbor
 
 import (
+	"context"
 	"testing"
 	"time"
 )
 
-func TestApplyProbeResultRequestsConfirmationAtConfiguredTimeout(t *testing.T) {
+func TestApplyProbeResultRequestsConfirmationBeforeOfflineDeadline(t *testing.T) {
 	state := &deviceState{online: true, verified: true}
 	probeStarted := time.Unix(100, 0)
 	probeInterval := time.Second
 	offlineTimeout := 5 * time.Second
 
-	eventType, confirmOffline := applyProbeResult(state, false, probeStarted, probeStarted.Add(250*time.Millisecond), probeInterval, offlineTimeout)
+	eventType, confirmOffline := applyProbeResult(state, false, probeStarted, probeStarted.Add(probeTimeout), probeInterval, offlineTimeout)
 	if eventType != "" || confirmOffline {
-		t.Fatal("first failed probe requested early disconnection")
+		t.Fatal("first failed probe requested early confirmation")
 	}
 	wantFailedSince := probeStarted.Add(-probeInterval)
 	if !state.failedSince.Equal(wantFailedSince) {
 		t.Fatalf("failedSince = %v, want %v", state.failedSince, wantFailedSince)
 	}
 
-	eventType, confirmOffline = applyProbeResult(state, false, probeStarted.Add(3749*time.Millisecond), probeStarted.Add(3999*time.Millisecond), probeInterval, offlineTimeout)
+	deadline := wantFailedSince.Add(offlineTimeout)
+	beforeWindow := probeStarted.Add(2*probeInterval + probeTimeout)
+	eventType, confirmOffline = applyProbeResult(state, false, beforeWindow.Add(-probeTimeout), beforeWindow, probeInterval, offlineTimeout)
 	if eventType != "" || confirmOffline {
-		t.Fatal("probe requested confirmation before offline timeout")
+		t.Fatal("probe requested confirmation before the confirmation window")
 	}
 
-	eventType, confirmOffline = applyProbeResult(state, false, probeStarted.Add(4*time.Second), probeStarted.Add(4250*time.Millisecond), probeInterval, offlineTimeout)
+	insideWindow := probeStarted.Add(3*probeInterval + probeTimeout)
+	eventType, confirmOffline = applyProbeResult(state, false, insideWindow.Add(-probeTimeout), insideWindow, probeInterval, offlineTimeout)
 	if eventType != "" || !confirmOffline {
-		t.Fatal("probe did not request confirmation at offline timeout")
+		t.Fatal("probe did not request confirmation inside the confirmation window")
+	}
+	confirmationBudget := deadline.Sub(insideWindow)
+	if confirmationBudget < confirmationWindow {
+		t.Fatalf("confirmation budget = %v, want at least %v", confirmationBudget, confirmationWindow)
+	}
+}
+
+func TestConfirmationProbeIntervalUsesAvailableWindow(t *testing.T) {
+	remaining := 750 * time.Millisecond
+	want := 175 * time.Millisecond
+	if got := confirmationProbeInterval(remaining); got != want {
+		t.Fatalf("confirmation interval = %v, want %v", got, want)
+	}
+	if lastAttempt := time.Duration(confirmationAttempts-1) * want; lastAttempt+confirmationTimeout > remaining {
+		t.Fatalf("confirmation attempts exceed remaining window: last=%v timeout=%v remaining=%v", lastAttempt, confirmationTimeout, remaining)
+	}
+}
+
+func TestConfirmationProbeIntervalKeepsMinimumSpacing(t *testing.T) {
+	if got := confirmationProbeInterval(500 * time.Millisecond); got != confirmationInterval {
+		t.Fatalf("confirmation interval = %v, want minimum %v", got, confirmationInterval)
+	}
+}
+
+func TestWaitUntilHonorsDeadline(t *testing.T) {
+	const wait = 20 * time.Millisecond
+	started := time.Now()
+	if !waitUntil(context.Background(), started.Add(wait)) {
+		t.Fatal("waitUntil stopped before the deadline")
+	}
+	if elapsed := time.Since(started); elapsed < wait {
+		t.Fatalf("waitUntil returned after %v, want at least %v", elapsed, wait)
+	}
+}
+
+func TestWaitUntilStopsWhenContextIsCanceled(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if waitUntil(ctx, time.Now().Add(time.Second)) {
+		t.Fatal("waitUntil reported reaching the deadline after cancellation")
 	}
 }
 
