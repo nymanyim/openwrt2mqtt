@@ -27,7 +27,6 @@ on:
       - "README.md"
   push:
     branches:
-      - main
       - "ux/**"
     paths:
       - ".github/workflows/build-openwrt.yml"
