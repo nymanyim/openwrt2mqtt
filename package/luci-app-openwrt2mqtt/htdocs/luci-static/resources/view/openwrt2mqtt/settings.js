@@ -45,21 +45,21 @@ function addStatus(section, optionName, title, value) {
 	option.cfgvalue = function() { return value; };
 }
 
-function createMessageExample() {
+function createMessageExample(eventType) {
 	return {
 		schema_version: '1',
 		event_id: '8f69af77935d0b4a1902c203179348fa',
 		router_id: 'OpenWrt',
 		category: 'network',
-		type: 'device.connected',
-		source: 'dhcp/br-lan',
+		type: eventType,
+		source: 'neighbor/br-lan',
 		timestamp: '2026-07-30T05:18:21Z',
 		data: {
-			mac: 'AA:BB:CC:DD:EE:FF',
-			transaction_id: '1234abcd',
+			connection_type: 'network',
+			interface: 'br-lan',
 			ip: '192.168.1.100',
-			hostname: 'example-device',
-			server_ip: '192.168.1.1'
+			mac: 'aa:bb:cc:dd:ee:ff',
+			hostname: 'example-device'
 		}
 	};
 }
@@ -97,7 +97,7 @@ function toggleMessageExample(event) {
 	ui.showModal(_('Message example'), [
 		E('pre', {
 			'data-openwrt2mqtt-message-example': 'true'
-		}, JSON.stringify(createMessageExample(), null, 2))
+		}, JSON.stringify(createMessageExample(messageExampleButton.dataset.eventType), null, 2))
 	]);
 	messageExampleOpen = true;
 
@@ -110,8 +110,8 @@ function toggleMessageExample(event) {
 		overlay.addEventListener('click', messageExampleOverlayHandler);
 }
 
-function attachMessageExampleButton(node) {
-	var title = node.querySelector('[data-name="_device_event_enabled"] > .cbi-value-title');
+function attachMessageExampleButton(node, optionName, eventType) {
+	var title = node.querySelector('[data-name="' + optionName + '"] > .cbi-value-title');
 	if (title === null)
 		return;
 
@@ -121,6 +121,7 @@ function attachMessageExampleButton(node) {
 		'title': _('View message example'),
 		'aria-label': _('View message example'),
 		'aria-expanded': 'false',
+		'data-event-type': eventType,
 		'data-openwrt2mqtt-message-example-button': 'true',
 		'style': 'margin-left:.5em;padding:0 .35em;min-width:auto;line-height:1.3;vertical-align:middle',
 		'click': toggleMessageExample
@@ -228,6 +229,15 @@ return view.extend({
 		deviceConnectionEnabled.default = deviceConnectionEnabled.enabled;
 		deviceConnectionEnabled.rmempty = false;
 
+		o = s.taboption('events', form.Value, 'interface', _('Capture interface'));
+		o.default = 'br-lan';
+		o.rmempty = false;
+		o.depends('_device_event_enabled', '1');
+		o.depends('_device_disconnected_enabled', '1');
+		o.validate = function(sectionId, value) {
+			return value ? true : _('The capture interface must not be empty.');
+		};
+
 		o = bindOption(s.taboption('events', form.Flag, '_device_disconnected_enabled',
 			_('Device disconnection'), _('Publish an event after a device remains unreachable for the configured offline time.')),
 			'network_device_disconnected', 'enabled');
@@ -244,15 +254,6 @@ return view.extend({
 				? true : _('Offline time must be a positive duration, for example 5s.');
 		};
 
-		o = s.taboption('events', form.Value, 'interface', _('Capture interface'));
-		o.default = 'br-lan';
-		o.rmempty = false;
-		o.depends('_device_event_enabled', '1');
-		o.depends('_device_disconnected_enabled', '1');
-		o.validate = function(sectionId, value) {
-			return value ? true : _('The capture interface must not be empty.');
-		};
-
 		o = s.taboption('advanced', form.ListValue, 'log_level', _('Log level'));
 		o.value('debug', _('Debug'));
 		o.value('info', _('Info'));
@@ -267,7 +268,8 @@ return view.extend({
 		o.rmempty = false;
 
 		return m.render().then(function(node) {
-			attachMessageExampleButton(node);
+			attachMessageExampleButton(node, '_device_event_enabled', 'device.connected');
+			attachMessageExampleButton(node, '_device_disconnected_enabled', 'device.disconnected');
 			return node;
 		});
 	}
