@@ -8,7 +8,7 @@ import (
 )
 
 func TestApplyProbeResultRequestsConfirmationAtConfiguredTimeout(t *testing.T) {
-	state := &deviceState{online: true}
+	state := &deviceState{online: true, verified: true}
 	probeStarted := time.Unix(100, 0)
 	probeInterval := time.Second
 	offlineTimeout := 5 * time.Second
@@ -34,7 +34,7 @@ func TestApplyProbeResultRequestsConfirmationAtConfiguredTimeout(t *testing.T) {
 }
 
 func TestApplyProbeResultClearsFailureAfterSuccess(t *testing.T) {
-	state := &deviceState{online: true}
+	state := &deviceState{online: true, verified: true}
 	started := time.Unix(100, 0)
 
 	applyProbeResult(state, false, started, started.Add(250*time.Millisecond), time.Second, 5*time.Second)
@@ -48,7 +48,7 @@ func TestApplyProbeResultClearsFailureAfterSuccess(t *testing.T) {
 }
 
 func TestApplyProbeResultRequiresProbeBeforeReconnect(t *testing.T) {
-	state := &deviceState{online: false, reconnectPending: true}
+	state := &deviceState{online: false, verified: true, reconnectPending: true}
 	checked := time.Unix(100, 0)
 
 	eventType, confirmOffline := applyProbeResult(state, true, checked, checked, time.Second, 5*time.Second)
@@ -61,7 +61,7 @@ func TestApplyProbeResultRequiresProbeBeforeReconnect(t *testing.T) {
 }
 
 func TestApplyProbeResultRejectsUnconfirmedReconnect(t *testing.T) {
-	state := &deviceState{online: false, reconnectPending: true}
+	state := &deviceState{online: false, verified: true, reconnectPending: true}
 	checked := time.Unix(100, 0)
 
 	eventType, confirmOffline := applyProbeResult(state, false, checked, checked, time.Second, 5*time.Second)
@@ -70,5 +70,23 @@ func TestApplyProbeResultRejectsUnconfirmedReconnect(t *testing.T) {
 	}
 	if state.online || state.reconnectPending {
 		t.Fatalf("unexpected state after failed reconnect: %#v", state)
+	}
+}
+
+func TestApplyProbeResultEstablishesStartupBaselineWithoutEvent(t *testing.T) {
+	state := &deviceState{online: true}
+	checked := time.Unix(100, 0)
+	eventType, confirmOffline := applyProbeResult(state, true, checked, checked, time.Second, 5*time.Second)
+	if eventType != "" || confirmOffline || !state.verified {
+		t.Fatalf("unexpected startup baseline result: event=%q confirmation=%v state=%#v", eventType, confirmOffline, state)
+	}
+}
+
+func TestApplyProbeResultSuppressesStartupFailure(t *testing.T) {
+	state := &deviceState{online: true}
+	checked := time.Unix(100, 0)
+	eventType, confirmOffline := applyProbeResult(state, false, checked, checked, time.Second, 5*time.Second)
+	if eventType != "" || confirmOffline || state.verified || !state.failedSince.IsZero() {
+		t.Fatalf("unexpected startup failure result: event=%q confirmation=%v state=%#v", eventType, confirmOffline, state)
 	}
 }
