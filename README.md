@@ -72,6 +72,23 @@ UCI 配置文件：
 logread -e openwrt2mqtt              # 查看日志
 ```
 
+## MQTT 主题
+
+项目当前支持以下 MQTT 主题：
+
+| 事件 | 消息类型 | MQTT 主题 |
+| --- | --- | --- |
+| 设备接入 | `device.connected` | `openwrt2mqtt/OpenWrt/network/device/connected` |
+| 设备断开 | `device.disconnected` | `openwrt2mqtt/OpenWrt/network/device/disconnected` |
+
+设备断开事件会在设备持续不可达并超过配置的离线时间后发布。
+
+订阅全部设备事件：
+
+```text
+openwrt2mqtt/OpenWrt/network/device/+
+```
+
 ## 消息示例
 
 ```json
@@ -90,8 +107,6 @@ logread -e openwrt2mqtt              # 查看日志
   }
 }
 ```
-
-事件类型为 `device.connected` 或 `device.disconnected`，对应 Topic 末尾分别为 `device/connected`、`device/disconnected`。实际字段取决于事件来源及设备是否提供 DHCP 信息。
 
 ## 构建
 
