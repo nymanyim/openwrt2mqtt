@@ -111,9 +111,17 @@ function toggleMessageExample(event) {
 }
 
 function attachMessageExampleButton(node, optionName, eventType) {
-	var title = node.querySelector('[data-name="' + optionName + '"] > .cbi-value-title');
+	var row = node.querySelector('[data-name="' + optionName + '"]');
+	var title = row !== null ? row.querySelector(':scope > .cbi-value-title') : null;
+	var checkbox = row !== null ? row.querySelector(':scope > .cbi-value-field input[type="checkbox"]') : null;
 	if (title === null)
 		return;
+
+	if (checkbox !== null) {
+		var checkboxControl = checkbox.closest('label') || checkbox;
+		checkboxControl.style.marginLeft = '.5em';
+		title.appendChild(checkboxControl);
+	}
 
 	title.appendChild(E('button', {
 		'type': 'button',
