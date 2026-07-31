@@ -16,6 +16,7 @@ on:
       - main
     paths:
       - ".github/workflows/build-openwrt.yml"
+      - ".github/scripts/**"
       - "cmd/**"
       - "internal/**"
       - "package/**"
@@ -30,6 +31,7 @@ on:
       - "ux/**"
     paths:
       - ".github/workflows/build-openwrt.yml"
+      - ".github/scripts/**"
       - "cmd/**"
       - "internal/**"
       - "package/**"
@@ -55,22 +57,46 @@ env:
   SDK_ARCHIVE: "openwrt-sdk-25.12.5-rockchip-armv8_gcc-14.3.0_musl.Linux-x86_64.tar.zst"
 
 jobs:
+  release_version:
+    name: Prepare release version
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.release }}
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    outputs:
+      source_sha: ${{ steps.version.outputs.source_sha }}
+    steps:
+      - name: Check out main
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Increase package version
+        id: version
+        shell: bash
+        run: bash .github/scripts/prepare-release-version.sh
+
   test:
     name: Basic checks
+    needs: release_version
     if: >-
-      github.event_name != 'issue_comment' ||
+      always() &&
+      (needs.release_version.result == 'success' || needs.release_version.result == 'skipped') &&
+      (github.event_name != 'issue_comment' ||
       (github.event.issue.pull_request &&
       github.event.comment.body == '/build' &&
-      contains(fromJSON('["OWNER","MEMBER","COLLABORATOR"]'), github.event.comment.author_association))
+      contains(fromJSON('["OWNER","MEMBER","COLLABORATOR"]'), github.event.comment.author_association)))
     runs-on: ubuntu-24.04
     outputs:
+      source_sha: ${{ steps.package.outputs.source_sha }}
       package_version: ${{ steps.package.outputs.version }}
       artifact_name: ${{ steps.package.outputs.artifact_name }}
     steps:
       - name: Check out source
         uses: actions/checkout@v4
         with:
-          ref: ${{ github.event_name == 'issue_comment' && format('refs/pull/{0}/merge', github.event.issue.number) || github.ref }}
+          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.release && needs.release_version.outputs.source_sha || github.event_name == 'issue_comment' && format('refs/pull/{0}/merge', github.event.issue.number) || github.ref }}
           persist-credentials: false
 
       - name: Validate release request
@@ -90,6 +116,7 @@ jobs:
           version="$(sed -n 's/^PKG_VERSION:=//p' package/openwrt2mqtt/Makefile)"
           test -n "${version}"
           echo "version=${version}" >> "${GITHUB_OUTPUT}"
+          echo "source_sha=$(git rev-parse HEAD)" >> "${GITHUB_OUTPUT}"
           short_sha="$(git rev-parse --short=7 HEAD)"
           echo "artifact_name=openwrt2mqtt-${short_sha}" >> "${GITHUB_OUTPUT}"
 
@@ -112,6 +139,7 @@ jobs:
           go vet ./...
           node --check package/luci-app-openwrt2mqtt/htdocs/luci-static/resources/view/openwrt2mqtt/settings.js
           sh -n package/openwrt2mqtt/files/etc/init.d/openwrt2mqtt
+          bash -n .github/scripts/prepare-release-version.sh
 
   build:
     name: OpenWrt 25.12.5 rockchip/armv8
@@ -123,7 +151,7 @@ jobs:
       - name: Check out source
         uses: actions/checkout@v4
         with:
-          ref: ${{ github.event_name == 'issue_comment' && format('refs/pull/{0}/merge', github.event.issue.number) || github.ref }}
+          ref: ${{ needs.test.outputs.source_sha }}
           persist-credentials: false
 
       - name: Install SDK host dependencies
@@ -240,6 +268,9 @@ jobs:
     steps:
       - name: Check out source
         uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.test.outputs.source_sha }}
+          persist-credentials: false
 
       - name: Verify release tag
         shell: bash
@@ -247,7 +278,7 @@ jobs:
           set -euo pipefail
           tag="v${{ needs.test.outputs.package_version }}"
           if git ls-remote --exit-code --tags origin "refs/tags/${tag}" >/dev/null 2>&1; then
-            echo "Release 标签 ${tag} 已存在，请先更新 PKG_VERSION。" >&2
+            echo "Release 标签 ${tag} 已在本次构建期间创建，请重新触发 Release 构建。" >&2
             exit 1
           fi
 
@@ -271,7 +302,7 @@ jobs:
         with:
           tag_name: v${{ needs.test.outputs.package_version }}
           name: openwrt2mqtt ${{ needs.test.outputs.package_version }}
-          target_commitish: ${{ github.sha }}
+          target_commitish: ${{ needs.test.outputs.source_sha }}
           generate_release_notes: true
           fail_on_unmatched_files: true
           files: |

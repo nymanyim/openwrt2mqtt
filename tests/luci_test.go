@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"os/exec"
+	"regexp"
 	"strings"
 	"testing"
 )
@@ -399,14 +400,17 @@ func TestBuildWorkflowIncludesSimplifiedChinesePackage(t *testing.T) {
 		"xargs -0 sha256sum",
 		"type: boolean",
 		"inputs.release",
-		"Release 只能从 main 分支发布。",
+		"release_version:",
+		"name: Prepare release version",
 		"permissions:\n      contents: write",
+		"bash .github/scripts/prepare-release-version.sh",
+		"ref: ${{ needs.test.outputs.source_sha }}",
 		"uses: actions/download-artifact@v4",
 		"uses: softprops/action-gh-release@v2",
 		"tag_name: v${{ needs.test.outputs.package_version }}",
+		"target_commitish: ${{ needs.test.outputs.source_sha }}",
 		"generate_release_notes: true",
 		"release-assets/SHA256SUMS",
-		"Release 标签 ${tag} 已存在，请先更新 PKG_VERSION。",
 	} {
 		if !strings.Contains(text, expected) {
 			t.Fatalf("build workflow is missing %q", expected)
@@ -415,10 +419,10 @@ func TestBuildWorkflowIncludesSimplifiedChinesePackage(t *testing.T) {
 }
 
 func TestOpenWrtPackageMakefiles(t *testing.T) {
+	corePath := repoPath(t, "package", "openwrt2mqtt", "Makefile")
+	luciPath := repoPath(t, "package", "luci-app-openwrt2mqtt", "Makefile")
 	checks := map[string][]string{
-		repoPath(t, "package", "openwrt2mqtt", "Makefile"): {
-			"PKG_VERSION:=1.0.0",
-			"PKG_RELEASE:=3",
+		corePath: {
 			"GO_PKG_BUILD_PKG:=$(GO_PKG)/cmd/openwrt2mqtt",
 			"GO_PKG_LDFLAGS_X:=main.version=$(PKG_VERSION)",
 			"DEPENDS:=$(GO_ARCH_DEPENDS) +ca-bundle +procd +rpcd +uci",
@@ -427,14 +431,15 @@ func TestOpenWrtPackageMakefiles(t *testing.T) {
 			"$(INSTALL_BIN) ./files/usr/libexec/openwrt2mqtt/migrate-config $(1)/usr/libexec/openwrt2mqtt/migrate-config",
 			"/usr/libexec/openwrt2mqtt/migrate-config || exit 1",
 		},
-		repoPath(t, "package", "luci-app-openwrt2mqtt", "Makefile"): {
-			"PKG_VERSION:=1.0.0",
-			"PKG_RELEASE:=3",
+		luciPath: {
 			"LUCI_DEPENDS:=+luci-base +openwrt2mqtt",
 			"include $(TOPDIR)/feeds/luci/luci.mk",
 		},
 	}
 
+	metadata := make(map[string]string, len(checks))
+	versionPattern := regexp.MustCompile(`(?m)^PKG_VERSION:=([0-9]+\.[0-9]+\.[0-9]+)$`)
+	releasePattern := regexp.MustCompile(`(?m)^PKG_RELEASE:=([1-9][0-9]*)$`)
 	for path, expectedStrings := range checks {
 		content, err := os.ReadFile(path)
 		if err != nil {
@@ -446,6 +451,17 @@ func TestOpenWrtPackageMakefiles(t *testing.T) {
 				t.Fatalf("%s is missing %q", path, expected)
 			}
 		}
+
+		version := versionPattern.FindStringSubmatch(text)
+		release := releasePattern.FindStringSubmatch(text)
+		if version == nil || release == nil {
+			t.Fatalf("%s has invalid package metadata", path)
+		}
+		metadata[path] = version[1] + "-r" + release[1]
+	}
+
+	if metadata[corePath] != metadata[luciPath] {
+		t.Fatalf("core and LuCI package versions differ: %s != %s", metadata[corePath], metadata[luciPath])
 	}
 }
 
