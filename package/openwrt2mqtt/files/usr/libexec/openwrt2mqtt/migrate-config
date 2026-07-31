@@ -1,0 +1,28 @@
+#!/bin/sh
+
+INIT_SCRIPT="${OPENWRT2MQTT_INIT_SCRIPT:-/etc/init.d/openwrt2mqtt}"
+. "$INIT_SCRIPT" || exit 1
+
+changed=0
+
+if ! uci -q get openwrt2mqtt.network_device_disconnected >/dev/null; then
+	uci -q set openwrt2mqtt.network_device_disconnected=event || exit 1
+	changed=1
+fi
+
+if ! uci -q get openwrt2mqtt.network_device_disconnected.enabled >/dev/null; then
+	uci -q set openwrt2mqtt.network_device_disconnected.enabled='1' || exit 1
+	changed=1
+fi
+
+offline_timeout="$(uci -q get openwrt2mqtt.network_device_disconnected.offline_timeout)"
+if [ -z "$offline_timeout" ]; then
+	uci -q set openwrt2mqtt.network_device_disconnected.offline_timeout='5s' || exit 1
+	changed=1
+elif printf '%s\n' "$offline_timeout" | grep -Eq '^([0-9]+([.][0-9]+)?(ns|us|µs|μs|ms|s|m|h))+$' &&
+	! is_minimum_offline_duration "$offline_timeout"; then
+	uci -q set openwrt2mqtt.network_device_disconnected.offline_timeout='3s' || exit 1
+	changed=1
+fi
+
+[ "$changed" -eq 0 ] || uci -q commit openwrt2mqtt

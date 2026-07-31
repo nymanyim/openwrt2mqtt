@@ -2,7 +2,7 @@ include $(TOPDIR)/rules.mk
 
 PKG_NAME:=openwrt2mqtt
 PKG_VERSION:=1.0.0
-PKG_RELEASE:=1
+PKG_RELEASE:=3
 
 PKG_MAINTAINER:=nymanyim
 PKG_LICENSE:=MIT
@@ -55,11 +55,16 @@ define Package/openwrt2mqtt/install
 	$(INSTALL_BIN) ./files/etc/init.d/openwrt2mqtt $(1)/etc/init.d/openwrt2mqtt
 	$(INSTALL_DIR) $(1)/usr/libexec/rpcd
 	$(INSTALL_BIN) ./files/usr/libexec/rpcd/openwrt2mqtt $(1)/usr/libexec/rpcd/openwrt2mqtt
+	$(INSTALL_DIR) $(1)/usr/libexec/openwrt2mqtt
+	$(INSTALL_BIN) ./files/usr/libexec/openwrt2mqtt/migrate-config $(1)/usr/libexec/openwrt2mqtt/migrate-config
 endef
 
 define Package/openwrt2mqtt/postinst
 #!/bin/sh
-[ -n "$${IPKG_INSTROOT}" ] || /etc/init.d/rpcd reload
+[ -n "$${IPKG_INSTROOT}" ] || {
+	/usr/libexec/openwrt2mqtt/migrate-config || exit 1
+	/etc/init.d/rpcd reload
+}
 endef
 
 $(eval $(call BuildPackage,openwrt2mqtt))

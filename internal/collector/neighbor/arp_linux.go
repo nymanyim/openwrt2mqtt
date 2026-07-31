@@ -17,6 +17,13 @@ const (
 )
 
 func probeARP(device *net.Interface, sourceIP, targetIP net.IP, targetMAC net.HardwareAddr, timeout time.Duration) bool {
+	return probeARPAttempts(device, sourceIP, targetIP, targetMAC, time.Now().Add(timeout), 1, 0)
+}
+
+func probeARPAttempts(device *net.Interface, sourceIP, targetIP net.IP, targetMAC net.HardwareAddr, deadline time.Time, attempts int, interval time.Duration) bool {
+	if attempts < 1 || !time.Now().Before(deadline) {
+		return false
+	}
 	fd, err := syscall.Socket(syscall.AF_PACKET, syscall.SOCK_RAW, int(htons(etherTypeARP)))
 	if err != nil {
 		return false
@@ -25,9 +32,8 @@ func probeARP(device *net.Interface, sourceIP, targetIP net.IP, targetMAC net.Ha
 	if syscall.Bind(fd, &syscall.SockaddrLinklayer{Protocol: htons(etherTypeARP), Ifindex: device.Index}) != nil {
 		return false
 	}
-	deadline := time.Now().Add(timeout)
 	packet := make([]byte, arpPacketSize)
-	copy(packet[0:6], []byte{255, 255, 255, 255, 255, 255})
+	copy(packet[0:6], targetMAC)
 	copy(packet[6:12], device.HardwareAddr)
 	binary.BigEndian.PutUint16(packet[12:14], etherTypeARP)
 	binary.BigEndian.PutUint16(packet[14:16], 1)
@@ -36,21 +42,47 @@ func probeARP(device *net.Interface, sourceIP, targetIP net.IP, targetMAC net.Ha
 	binary.BigEndian.PutUint16(packet[20:22], 1)
 	copy(packet[22:28], device.HardwareAddr)
 	copy(packet[28:32], sourceIP.To4())
+	copy(packet[32:38], targetMAC)
 	copy(packet[38:42], targetIP.To4())
-	if syscall.Sendto(fd, packet, 0, &syscall.SockaddrLinklayer{Protocol: htons(etherTypeARP), Ifindex: device.Index, Halen: 6, Addr: [8]uint8{255, 255, 255, 255, 255, 255}}) != nil {
-		return false
-	}
+	var destination [8]uint8
+	copy(destination[:], targetMAC)
+	address := &syscall.SockaddrLinklayer{Protocol: htons(etherTypeARP), Ifindex: device.Index, Halen: 6, Addr: destination}
 	buffer := make([]byte, 256)
+	nextSend := time.Now()
+	sent := 0
 	for {
+		now := time.Now()
+		if sent < attempts && !now.Before(nextSend) {
+			if syscall.Sendto(fd, packet, 0, address) != nil {
+				return false
+			}
+			sent++
+			nextSend = nextSend.Add(interval)
+			continue
+		}
+
 		remaining := time.Until(deadline)
 		if remaining <= 0 {
 			return false
 		}
-		if syscall.SetsockoptTimeval(fd, syscall.SOL_SOCKET, syscall.SO_RCVTIMEO, &syscall.Timeval{Sec: int64(remaining / time.Second), Usec: int64((remaining % time.Second) / time.Microsecond)}) != nil {
+		wait := remaining
+		if sent < attempts {
+			untilNextSend := time.Until(nextSend)
+			if untilNextSend <= 0 {
+				continue
+			}
+			if untilNextSend < wait {
+				wait = untilNextSend
+			}
+		}
+		if syscall.SetsockoptTimeval(fd, syscall.SOL_SOCKET, syscall.SO_RCVTIMEO, durationTimeval(wait)) != nil {
 			return false
 		}
-		n, _, err := syscall.Recvfrom(fd, buffer, 0)
-		if err != nil {
+		n, _, receiveErr := syscall.Recvfrom(fd, buffer, 0)
+		if receiveErr != nil {
+			if errors.Is(receiveErr, syscall.EINTR) || errors.Is(receiveErr, syscall.EAGAIN) || errors.Is(receiveErr, syscall.EWOULDBLOCK) {
+				continue
+			}
 			return false
 		}
 		if n < arpPacketSize || binary.BigEndian.Uint16(buffer[20:22]) != 2 {
@@ -60,6 +92,13 @@ func probeARP(device *net.Interface, sourceIP, targetIP net.IP, targetMAC net.Ha
 			return true
 		}
 	}
+}
+
+func durationTimeval(value time.Duration) *syscall.Timeval {
+	if value < time.Microsecond {
+		value = time.Microsecond
+	}
+	return &syscall.Timeval{Sec: int64(value / time.Second), Usec: int64((value % time.Second) / time.Microsecond)}
 }
 func interfaceIPv4(device *net.Interface) (net.IP, error) {
 	addresses, err := device.Addrs()

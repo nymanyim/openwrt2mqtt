@@ -14,6 +14,7 @@ const (
 	defaultTopicPrefix    = "openwrt2mqtt"
 	defaultMQTTTimeout    = 10 * time.Second
 	defaultOfflineTimeout = 5 * time.Second
+	minimumOfflineTimeout = 3 * time.Second
 	defaultBusCapacity    = 128
 )
 
@@ -61,8 +62,11 @@ func FromEnvironment() (Runtime, error) {
 	}
 	if value := os.Getenv("OPENWRT2MQTT_OFFLINE_TIMEOUT"); value != "" {
 		timeout, err := time.ParseDuration(value)
-		if err != nil || timeout <= 0 {
-			return Runtime{}, fmt.Errorf("OPENWRT2MQTT_OFFLINE_TIMEOUT must be a positive duration")
+		if err != nil {
+			return Runtime{}, fmt.Errorf("OPENWRT2MQTT_OFFLINE_TIMEOUT must be a valid duration")
+		}
+		if timeout < minimumOfflineTimeout {
+			return Runtime{}, fmt.Errorf("OPENWRT2MQTT_OFFLINE_TIMEOUT must be at least %s", minimumOfflineTimeout)
 		}
 		config.OfflineTimeout = timeout
 	}

@@ -114,11 +114,11 @@ msgstr "设备断开"
 msgid "Publish an event after a device remains unreachable for the configured offline time."
 msgstr "设备持续不可达达到设定离线时间后发布断开事件。"
 
-msgid "Offline time"
-msgstr "离线时间"
+msgid "Offline time (seconds)"
+msgstr "离线时间（秒）"
 
-msgid "Offline time must be a positive duration, for example 5s."
-msgstr "离线时间必须为大于零的时长，例如 5s。"
+msgid "Offline time must be an integer of at least 3 seconds."
+msgstr "离线时间必须为不小于 3 秒的整数。"
 
 msgid "Capture interface"
 msgstr "监听接口"

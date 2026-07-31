@@ -79,17 +79,33 @@ func TestLuCISettingsPage(t *testing.T) {
 		"s.tab('advanced', _('Advanced settings'))",
 		"s.taboption('quick', form.Flag, 'enabled'",
 		"bindOption(s.taboption('quick', form.Value, '_broker'",
+		"bindOption(s.taboption('quick', form.Value, '_username'",
+		"function ensureSection(sectionName, sectionType)",
+		"uci.add('openwrt2mqtt', sectionType, sectionName)",
+		"ensureSection(sectionName, sectionType)",
+		"option.load = function() {",
 		"o.default = '127.0.0.1:1883'",
 		"o.placeholder = '127.0.0.1:1883'",
 		"return uci.get('openwrt2mqtt', 'mqtt', 'broker') || '127.0.0.1:1883'",
 		"bindOption(s.taboption('events', form.Flag, '_device_event_enabled'",
+		"bindOption(s.taboption('events', form.Flag, '_device_disconnected_enabled'",
+		"function enhanceSettingsForm(node)",
 		"attachMessageExampleButton(node, '_device_event_enabled', 'device.connected')",
 		"attachMessageExampleButton(node, '_device_disconnected_enabled', 'device.disconnected')",
+		"var renderContents = m.renderContents.bind(m)",
+		"m.renderContents = function() {",
+		"return renderContents().then(enhanceSettingsForm)",
 		`node.querySelector('[data-name="' + optionName + '"]')`,
 		"row.querySelector(':scope > .cbi-value-title')",
 		`row.querySelector(':scope > .cbi-value-field input[type="checkbox"]')`,
-		"checkbox.closest('label') || checkbox",
-		"title.appendChild(checkboxControl)",
+		"var titleContent = E('span', {",
+		"'data-openwrt2mqtt-event-title': 'true'",
+		"display:inline-flex;align-items:center;gap:.5em;min-height:30px",
+		"title.removeAttribute('for')",
+		"checkbox.closest('.cbi-checkbox')",
+		"checkboxLabel.remove()",
+		"titleContent.appendChild(checkboxControl)",
+		"titleContent.appendChild(E('button', {",
 		"'data-event-type': eventType",
 		"data-openwrt2mqtt-message-example-button",
 		"'aria-label': _('View message example')",
@@ -98,7 +114,22 @@ func TestLuCISettingsPage(t *testing.T) {
 		"clickEvent.target === overlay",
 		"messageExampleButton.style.zIndex = '901'",
 		"s.taboption('events', form.Value, 'interface'",
+		"o.retain = true",
 		"o.depends('_device_event_enabled', '1')",
+		"bindSecondsOption(s.taboption('events', form.Value, '_offline_timeout', _('Offline time (seconds)'))",
+		"'network_device_disconnected', 'offline_timeout', 'event'",
+		"o.depends('_device_disconnected_enabled', '1')",
+		"return match !== null ? match[1] : value",
+		"uci.set('openwrt2mqtt', sectionName, optionName, value + 's')",
+		"o.default = '5'",
+		"o.datatype = 'and(uinteger,min(3))'",
+		"Number(value) >= 3",
+		"Offline time must be an integer of at least 3 seconds.",
+		"configurePositiveIntegerInput(node, '_offline_timeout')",
+		"input.setAttribute('inputmode', 'numeric')",
+		"input.setAttribute('pattern', '[0-9]*')",
+		"input.value.replace(/[^0-9]/g, '')",
+		"}, true)",
 		"s.taboption('advanced', form.ListValue, 'log_level'",
 		"s.taboption('advanced', form.Value, 'bus_capacity'",
 		"o.inputtitle = _('Reload service')",
@@ -107,7 +138,7 @@ func TestLuCISettingsPage(t *testing.T) {
 		"method: 'reload'",
 		"method: 'test_mqtt'",
 		"o.password = true",
-		"o.cfgvalue = function() { return ''; }",
+		"o.load = function() { return ''; }",
 		"o.remove = function() {}",
 		"if (value)",
 		"uci.set('openwrt2mqtt', 'mqtt', 'password', value)",
@@ -126,16 +157,34 @@ func TestLuCISettingsPage(t *testing.T) {
 	if quickIndex < 0 || eventsIndex < quickIndex || advancedIndex < eventsIndex {
 		t.Fatal("settings tabs must be ordered quick, events, advanced")
 	}
-
-	connectedIndex := strings.Index(text, "'_device_event_enabled'")
-	interfaceIndex := strings.Index(text, "form.Value, 'interface'")
-	disconnectedIndex := strings.Index(text, "'_device_disconnected_enabled'")
-	offlineIndex := strings.Index(text, "'_offline_timeout'")
+	connectedIndex := strings.Index(text, "bindOption(s.taboption('events', form.Flag, '_device_event_enabled'")
+	interfaceIndex := strings.Index(text, "s.taboption('events', form.Value, 'interface'")
+	disconnectedIndex := strings.Index(text, "bindOption(s.taboption('events', form.Flag, '_device_disconnected_enabled'")
+	offlineIndex := strings.Index(text, "bindSecondsOption(s.taboption('events', form.Value, '_offline_timeout'")
 	if connectedIndex < 0 || interfaceIndex < connectedIndex || disconnectedIndex < interfaceIndex || offlineIndex < disconnectedIndex {
 		t.Fatal("event options must be ordered connection, interface, disconnection, offline timeout")
 	}
 
+	interfaceBlock := text[interfaceIndex:disconnectedIndex]
+	if strings.Count(interfaceBlock, "o.depends('_device_event_enabled', '1')") != 1 ||
+		strings.Contains(interfaceBlock, "o.depends('_device_disconnected_enabled', '1')") ||
+		!strings.Contains(interfaceBlock, "o.retain = true") {
+		t.Fatal("capture interface must depend only on device connection and retain its saved value while hidden")
+	}
+
+	advancedOptionIndex := strings.Index(text, "s.taboption('advanced', form.ListValue, 'log_level'")
+	if advancedOptionIndex < offlineIndex {
+		t.Fatal("advanced options must follow event options")
+	}
+	offlineBlock := text[offlineIndex:advancedOptionIndex]
+	if strings.Count(offlineBlock, "o.depends('_device_disconnected_enabled', '1')") != 1 ||
+		strings.Contains(offlineBlock, "o.depends('_device_event_enabled', '1')") ||
+		!strings.Contains(offlineBlock, "o.retain = true") {
+		t.Fatal("offline time must depend only on device disconnection and retain its saved value while hidden")
+	}
+
 	for _, forbidden := range []string{
+		".cfgvalue = function",
 		"uci.get('openwrt2mqtt', 'mqtt', 'password')",
 		"fs.exec(",
 		"fs.read(",
@@ -160,6 +209,9 @@ func TestLuCISettingsPage(t *testing.T) {
 		"transaction_id: '1234abcd'",
 		"server_ip: '192.168.1.1'",
 		"source: 'dhcp/br-lan'",
+		"o.default = '5s'",
+		"Offline time must be a positive duration, for example 5s.",
+		"bindOption(s.taboption('events', form.Value, '_offline_timeout', _('Offline time'))",
 	} {
 		if strings.Contains(text, forbidden) {
 			t.Fatalf("settings page contains forbidden string %q", forbidden)
@@ -214,6 +266,68 @@ func TestLuCISettingsPage(t *testing.T) {
 	}
 }
 
+func TestLuCIOfflineTimeoutCreatesMissingSection(t *testing.T) {
+	node, err := exec.LookPath("node")
+	if err != nil {
+		t.Skip("node is unavailable")
+	}
+
+	path := repoPath(t, "package", "luci-app-openwrt2mqtt", "htdocs", "luci-static", "resources", "view", "openwrt2mqtt", "settings.js")
+	script := `
+const fs = require('fs');
+const vm = require('vm');
+const source = fs.readFileSync(process.argv[1], 'utf8');
+const start = source.indexOf('function ensureSection');
+const end = source.indexOf('function addStatus');
+if (start < 0 || end <= start)
+	throw new Error('unable to locate mapped option helpers');
+
+const sections = {};
+const additions = [];
+const context = {
+	uci: {
+		get: function(config, section, option) {
+			if (arguments.length === 2)
+				return sections[section] || null;
+			return sections[section] ? sections[section][option] : null;
+		},
+		add: function(config, type, section) {
+			additions.push([config, type, section]);
+			sections[section] = { '.type': type };
+			return section;
+		},
+		set: function(config, section, option, value) {
+			if (sections[section])
+				sections[section][option] = value;
+		},
+		unset: function(config, section, option) {
+			if (sections[section])
+				delete sections[section][option];
+		}
+	}
+};
+vm.runInNewContext(source.slice(start, end) + '\nthis.bindSecondsOption = bindSecondsOption;', context);
+
+const option = {};
+context.bindSecondsOption(option, 'network_device_disconnected', 'offline_timeout', 'event');
+option.write('main', '17');
+if (additions.length !== 1 || additions[0].join('/') !== 'openwrt2mqtt/event/network_device_disconnected')
+	throw new Error('missing named event section was not created correctly: ' + JSON.stringify(additions));
+if (sections.network_device_disconnected.offline_timeout !== '17s')
+	throw new Error('offline timeout was not written after creating the section');
+
+option.write('main', '30');
+if (additions.length !== 1)
+	throw new Error('existing section was created more than once');
+if (sections.network_device_disconnected.offline_timeout !== '30s')
+	throw new Error('existing offline timeout was not updated');
+`
+	command := exec.Command(node, "-e", script, path)
+	if output, err := command.CombinedOutput(); err != nil {
+		t.Fatalf("offline timeout helper: %v\n%s", err, output)
+	}
+}
+
 func TestLuCISimplifiedChineseTranslation(t *testing.T) {
 	path := repoPath(t, "package", "luci-app-openwrt2mqtt", "po", "zh_Hans", "openwrt2mqtt.po")
 	content, err := os.ReadFile(path)
@@ -238,6 +352,10 @@ func TestLuCISimplifiedChineseTranslation(t *testing.T) {
 		"msgstr \"测试连接\"",
 		"msgid \"Device connection\"",
 		"msgstr \"设备接入\"",
+		"msgid \"Offline time (seconds)\"",
+		"msgstr \"离线时间（秒）\"",
+		"msgid \"Offline time must be an integer of at least 3 seconds.\"",
+		"msgstr \"离线时间必须为不小于 3 秒的整数。\"",
 		"msgid \"View message example\"",
 		"msgstr \"查看消息示例\"",
 		"msgid \"Message example\"",
@@ -300,14 +418,18 @@ func TestOpenWrtPackageMakefiles(t *testing.T) {
 	checks := map[string][]string{
 		repoPath(t, "package", "openwrt2mqtt", "Makefile"): {
 			"PKG_VERSION:=1.0.0",
+			"PKG_RELEASE:=3",
 			"GO_PKG_BUILD_PKG:=$(GO_PKG)/cmd/openwrt2mqtt",
 			"GO_PKG_LDFLAGS_X:=main.version=$(PKG_VERSION)",
 			"DEPENDS:=$(GO_ARCH_DEPENDS) +ca-bundle +procd +rpcd +uci",
 			"/etc/config/openwrt2mqtt",
 			"$(INSTALL_BIN) $(GO_PKG_BUILD_BIN_DIR)/openwrt2mqtt $(1)/usr/sbin/openwrt2mqtt",
+			"$(INSTALL_BIN) ./files/usr/libexec/openwrt2mqtt/migrate-config $(1)/usr/libexec/openwrt2mqtt/migrate-config",
+			"/usr/libexec/openwrt2mqtt/migrate-config || exit 1",
 		},
 		repoPath(t, "package", "luci-app-openwrt2mqtt", "Makefile"): {
 			"PKG_VERSION:=1.0.0",
+			"PKG_RELEASE:=3",
 			"LUCI_DEPENDS:=+luci-base +openwrt2mqtt",
 			"include $(TOPDIR)/feeds/luci/luci.mk",
 		},

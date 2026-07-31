@@ -26,6 +26,7 @@ config_get() {
 		main.interface) value="${CFG_INTERFACE-br-lan}" ;;
 		main.log_level) value="${CFG_LOG_LEVEL-info}" ;;
 		main.bus_capacity) value="${CFG_BUS_CAPACITY-128}" ;;
+		network_device_disconnected.offline_timeout) value="${CFG_OFFLINE_TIMEOUT-5s}" ;;
 		mqtt.broker) value="${CFG_BROKER-127.0.0.1:1883}" ;;
 		mqtt.client_id) value="${CFG_CLIENT_ID-client-a}" ;;
 		mqtt.username) value="${CFG_USERNAME-user-a}" ;;
@@ -50,7 +51,7 @@ start() { printf 'START\n'; }
 `
 
 func TestOpenWrtScriptsHaveValidShellSyntax(t *testing.T) {
-	for _, path := range []string{initScriptPath(t), rpcScriptPath(t)} {
+	for _, path := range []string{initScriptPath(t), rpcScriptPath(t), migrateConfigPath(t)} {
 		command := exec.Command("sh", "-n", path)
 		if output, err := command.CombinedOutput(); err != nil {
 			t.Fatalf("sh -n %s: %v\n%s", path, err, output)
@@ -69,6 +70,8 @@ func TestUCIConfigDefaultsDisabled(t *testing.T) {
 		"option interface 'br-lan'",
 		"option bus_capacity '128'",
 		"config event 'network_device_connected'",
+		"config event 'network_device_disconnected'",
+		"option offline_timeout '5s'",
 		"option enabled '1'",
 		"option broker '127.0.0.1:1883'",
 		"option topic 'openwrt2mqtt'",
@@ -78,6 +81,67 @@ func TestUCIConfigDefaultsDisabled(t *testing.T) {
 		if !strings.Contains(text, expected) {
 			t.Fatalf("UCI config is missing %q", expected)
 		}
+	}
+}
+
+func TestConfigMigrationAddsMissingDisconnectedSettings(t *testing.T) {
+	state := map[string]string{}
+	commits := runMigrationHarness(t, state)
+
+	if got := state["openwrt2mqtt.network_device_disconnected"]; got != "event" {
+		t.Fatalf("section type = %q, want event", got)
+	}
+	if got := state["openwrt2mqtt.network_device_disconnected.enabled"]; got != "1" {
+		t.Fatalf("enabled = %q, want 1", got)
+	}
+	if got := state["openwrt2mqtt.network_device_disconnected.offline_timeout"]; got != "5s" {
+		t.Fatalf("offline timeout = %q, want 5s", got)
+	}
+	if commits != 1 {
+		t.Fatalf("commit count = %d, want 1", commits)
+	}
+
+	if commits = runMigrationHarness(t, state); commits != 0 {
+		t.Fatalf("second migration commit count = %d, want 0", commits)
+	}
+}
+
+func TestConfigMigrationPreservesDisconnectedSettings(t *testing.T) {
+	for _, value := range []string{"3s", "3000ms", "0.05m", "30s"} {
+		t.Run(value, func(t *testing.T) {
+			state := map[string]string{
+				"openwrt2mqtt.network_device_disconnected":                 "event",
+				"openwrt2mqtt.network_device_disconnected.enabled":         "0",
+				"openwrt2mqtt.network_device_disconnected.offline_timeout": value,
+			}
+
+			if commits := runMigrationHarness(t, state); commits != 0 {
+				t.Fatalf("commit count = %d, want 0", commits)
+			}
+			if state["openwrt2mqtt.network_device_disconnected.enabled"] != "0" ||
+				state["openwrt2mqtt.network_device_disconnected.offline_timeout"] != value {
+				t.Fatalf("migration overwrote custom settings: %#v", state)
+			}
+		})
+	}
+}
+
+func TestConfigMigrationRaisesOfflineTimeoutToMinimum(t *testing.T) {
+	for _, value := range []string{"1s", "2s", "2999ms"} {
+		t.Run(value, func(t *testing.T) {
+			state := map[string]string{
+				"openwrt2mqtt.network_device_disconnected":                 "event",
+				"openwrt2mqtt.network_device_disconnected.enabled":         "1",
+				"openwrt2mqtt.network_device_disconnected.offline_timeout": value,
+			}
+
+			if commits := runMigrationHarness(t, state); commits != 1 {
+				t.Fatalf("commit count = %d, want 1", commits)
+			}
+			if got := state["openwrt2mqtt.network_device_disconnected.offline_timeout"]; got != "3s" {
+				t.Fatalf("offline timeout = %q, want 3s", got)
+			}
+		})
 	}
 }
 
@@ -92,6 +156,7 @@ func TestInitScriptMapsUCIToEnvironment(t *testing.T) {
 		"<OPENWRT2MQTT_LOG_LEVEL=info>",
 		"<OPENWRT2MQTT_BUS_CAPACITY=128>",
 		"<OPENWRT2MQTT_EVENT_DEVICE_CONNECTED_ENABLED=1>",
+		"<OPENWRT2MQTT_OFFLINE_TIMEOUT=5s>",
 		"<OPENWRT2MQTT_MQTT_BROKER=127.0.0.1:1883>",
 		"<OPENWRT2MQTT_MQTT_CLIENT_ID=client-a>",
 		"<OPENWRT2MQTT_MQTT_USERNAME=user-a>",
@@ -135,6 +200,37 @@ func TestInitScriptAcceptsGoDurations(t *testing.T) {
 		if err != nil {
 			t.Fatalf("timeout %q: %v\n%s", duration, err, output)
 		}
+	}
+}
+
+func TestInitScriptAcceptsMinimumOfflineTimeout(t *testing.T) {
+	for _, value := range []string{"3s", "3000ms", "0.05m"} {
+		t.Run(value, func(t *testing.T) {
+			output, err := runInitHarness(t, map[string]string{"CFG_OFFLINE_TIMEOUT": value})
+			if err != nil {
+				t.Fatalf("offline timeout %q: %v\n%s", value, err, output)
+			}
+			if !strings.Contains(output, "<OPENWRT2MQTT_OFFLINE_TIMEOUT="+value+">") {
+				t.Fatalf("minimum offline timeout was not exported:\n%s", output)
+			}
+		})
+	}
+}
+
+func TestInitScriptRejectsOfflineTimeoutBelowMinimum(t *testing.T) {
+	for _, value := range []string{"1s", "2s", "2999ms"} {
+		t.Run(value, func(t *testing.T) {
+			output, err := runInitHarness(t, map[string]string{"CFG_OFFLINE_TIMEOUT": value})
+			if err == nil {
+				t.Fatalf("start_service accepted offline timeout %q:\n%s", value, output)
+			}
+			if !strings.Contains(output, "offline timeout must be at least 3s") {
+				t.Fatalf("unexpected validation output:\n%s", output)
+			}
+			if strings.Contains(output, "PARAM <command>") {
+				t.Fatalf("invalid offline timeout registered a command:\n%s", output)
+			}
+		})
 	}
 }
 
@@ -337,6 +433,93 @@ esac
 	}
 }
 
+func runMigrationHarness(t *testing.T, state map[string]string) int {
+	t.Helper()
+
+	directory := t.TempDir()
+	statePath := filepath.Join(directory, "state")
+	commitPath := filepath.Join(directory, "commits")
+	var content strings.Builder
+	for key, value := range state {
+		content.WriteString(key + "=" + value + "\n")
+	}
+	if err := os.WriteFile(statePath, []byte(content.String()), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	uciPath := filepath.Join(directory, "uci")
+	uciMock := `#!/bin/sh
+[ "$1" = "-q" ] && shift
+case "$1" in
+get)
+	while IFS='=' read -r key value; do
+		[ "$key" = "$2" ] || continue
+		printf '%s\n' "$value"
+		exit 0
+	done < "$MIGRATION_STATE"
+	exit 1
+	;;
+set)
+	entry="$2"
+	key="${entry%%=*}"
+	value="${entry#*=}"
+	temporary="$MIGRATION_STATE.tmp"
+	: > "$temporary"
+	while IFS='=' read -r old_key old_value; do
+		[ "$old_key" = "$key" ] || printf '%s=%s\n' "$old_key" "$old_value" >> "$temporary"
+	done < "$MIGRATION_STATE"
+	printf '%s=%s\n' "$key" "$value" >> "$temporary"
+	mv "$temporary" "$MIGRATION_STATE"
+	;;
+commit)
+	printf 'commit\n' >> "$MIGRATION_COMMITS"
+	;;
+*)
+	exit 2
+	;;
+esac
+`
+	if err := os.WriteFile(uciPath, []byte(uciMock), 0o700); err != nil {
+		t.Fatal(err)
+	}
+
+	command := exec.Command("sh", migrateConfigPath(t))
+	command.Env = append(os.Environ(),
+		"PATH="+directory+string(os.PathListSeparator)+os.Getenv("PATH"),
+		"MIGRATION_STATE="+statePath,
+		"MIGRATION_COMMITS="+commitPath,
+		"OPENWRT2MQTT_INIT_SCRIPT="+initScriptPath(t),
+	)
+	if output, err := command.CombinedOutput(); err != nil {
+		t.Fatalf("migrate config: %v\n%s", err, output)
+	}
+
+	migrated, err := os.ReadFile(statePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	clear(state)
+	for _, line := range strings.Split(strings.TrimSpace(string(migrated)), "\n") {
+		if line == "" {
+			continue
+		}
+		key, value, ok := strings.Cut(line, "=")
+		if !ok {
+			t.Fatalf("invalid migration state line %q", line)
+		}
+		state[key] = value
+	}
+
+	commits, err := os.ReadFile(commitPath)
+	if os.IsNotExist(err) {
+		return 0
+	}
+	if err != nil {
+		t.Fatal(err)
+	}
+	return strings.Count(string(commits), "commit\n")
+}
+
 func runInitHarness(t *testing.T, environment map[string]string) (string, error) {
 	t.Helper()
 	command := exec.Command("sh", "-c", initHarness)
@@ -377,6 +560,11 @@ func initScriptPath(t *testing.T) string {
 func rpcScriptPath(t *testing.T) string {
 	t.Helper()
 	return repoPath(t, "package", "openwrt2mqtt", "files", "usr", "libexec", "rpcd", "openwrt2mqtt")
+}
+
+func migrateConfigPath(t *testing.T) string {
+	t.Helper()
+	return repoPath(t, "package", "openwrt2mqtt", "files", "usr", "libexec", "openwrt2mqtt", "migrate-config")
 }
 
 func repoPath(t *testing.T, elements ...string) string {
