@@ -34,8 +34,10 @@ const (
 	netlinkBufferSize   = 64 * 1024
 	maxConcurrentProbes = 8
 	probeAttempts       = 5
-	probeWindow         = time.Second
+	probeWindow         = 2 * time.Second
+	probeSettleWindow   = 500 * time.Millisecond
 	probeInterval       = 150 * time.Millisecond
+	probePollInterval   = 250 * time.Millisecond
 )
 
 type deviceState struct {
@@ -229,7 +231,7 @@ type Collector struct {
 }
 
 func NewCollector(interfaceName, routerID string, offlineTimeout time.Duration, detectOffline bool) *Collector {
-	return &Collector{interfaceName: interfaceName, routerID: routerID, offlineTimeout: offlineTimeout, detectOffline: detectOffline, pollInterval: time.Second}
+	return &Collector{interfaceName: interfaceName, routerID: routerID, offlineTimeout: offlineTimeout, detectOffline: detectOffline, pollInterval: probePollInterval}
 }
 
 func (c *Collector) Name() string { return "neighbor" }
@@ -391,7 +393,28 @@ func runProbe(ctx context.Context, device *net.Interface, sourceIP net.IP, reque
 	if !deadline.After(started) {
 		deadline = started.Add(time.Microsecond)
 	}
-	online := probeARPAttempts(device, sourceIP, request.ip, request.mac, deadline, probeAttempts, probeInterval)
+	probeDeadline := deadline.Add(-probeSettleWindow)
+	if !probeDeadline.After(started) {
+		probeDeadline = deadline
+	}
+	online := probeARPAttempts(device, sourceIP, request.ip, request.mac, probeDeadline, probeAttempts, probeInterval)
+	if !online {
+		if wait := time.Until(deadline); wait > 0 {
+			timer := time.NewTimer(wait)
+			select {
+			case <-timer.C:
+			case <-ctx.Done():
+				if !timer.Stop() {
+					select {
+					case <-timer.C:
+					default:
+					}
+				}
+				<-slots
+				return
+			}
+		}
+	}
 	checked := time.Now()
 	<-slots
 	select {

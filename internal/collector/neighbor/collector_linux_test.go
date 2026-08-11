@@ -56,20 +56,24 @@ func TestFailureAtDeadlineDisconnectsOnce(t *testing.T) {
 func TestFiveSecondTimeoutIncludesFinalProbeWindow(t *testing.T) {
 	const timeout = 5 * time.Second
 	finalProbeStart := timeout - probeWindow
-	if finalProbeStart != 4*time.Second {
+	probeDeadline := timeout - probeSettleWindow
+	if finalProbeStart != 3*time.Second {
 		t.Fatalf("final probe starts at %v", finalProbeStart)
 	}
-	if finalProbeStart+probeWindow != timeout {
-		t.Fatalf("final probe ends at %v", finalProbeStart+probeWindow)
+	if probeDeadline != 4500*time.Millisecond {
+		t.Fatalf("ARP probe ends at %v", probeDeadline)
+	}
+	if probeDeadline+probeSettleWindow != timeout {
+		t.Fatalf("evidence settle window ends at %v", probeDeadline+probeSettleWindow)
 	}
 }
 
 func TestProbeSchedulingWaitsForFinalWindow(t *testing.T) {
 	tracker, state := testTracker(5 * time.Second)
-	if got := tracker.beginProbes(state.lastSeen.Add(3*time.Second), maxConcurrentProbes); len(got) != 0 {
+	if got := tracker.beginProbes(state.lastSeen.Add(2999*time.Millisecond), maxConcurrentProbes); len(got) != 0 {
 		t.Fatalf("early probe count = %d", len(got))
 	}
-	got := tracker.beginProbes(state.lastSeen.Add(4*time.Second), maxConcurrentProbes)
+	got := tracker.beginProbes(state.lastSeen.Add(3*time.Second), maxConcurrentProbes)
 	if len(got) != 1 {
 		t.Fatalf("final-window probe count = %d", len(got))
 	}
