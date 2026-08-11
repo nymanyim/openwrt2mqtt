@@ -239,10 +239,17 @@ function renderPasswordWidget(option, sectionId, cfgvalue) {
 	if (input === null)
 		return frame;
 
-	frame.style.position = 'relative';
 	input.type = 'password';
 	input.classList.add('cbi-input-password');
+	input.style.boxSizing = 'border-box';
 	input.style.paddingRight = '3em';
+
+	var control = E('span', {
+		'class': 'openwrt2mqtt-password-control',
+		'style': 'position:relative;display:inline-block;max-width:100%;vertical-align:middle'
+	});
+	frame.insertBefore(control, input);
+	control.appendChild(input);
 
 	var button = E('button', {
 		type: 'button',
@@ -250,7 +257,7 @@ function renderPasswordWidget(option, sectionId, cfgvalue) {
 		'title': _('Show password'),
 		'aria-label': _('Show password'),
 		'aria-pressed': 'false',
-		'style': 'position:absolute;right:.35em;top:50%;transform:translateY(-50%);display:none;align-items:center;justify-content:center;min-width:2em;padding:.25em;border:0;background:transparent;box-shadow:none;color:inherit',
+		'style': 'position:absolute;right:.35em;top:50%;transform:translateY(-50%);display:none;align-items:center;justify-content:center;width:2em;height:2em;min-width:0;padding:0;border:0;background:transparent;box-shadow:none;color:inherit;z-index:1',
 		'mousedown': function(event) {
 			event.preventDefault();
 		},
@@ -275,7 +282,8 @@ function renderPasswordWidget(option, sectionId, cfgvalue) {
 	}
 
 	input.addEventListener('input', updatePasswordButton, true);
-	frame.appendChild(button);
+	input.addEventListener('keyup', updatePasswordButton, true);
+	control.appendChild(button);
 	updatePasswordButton();
 	return frame;
 }
