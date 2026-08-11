@@ -47,6 +47,7 @@ type deviceState struct {
 	reconnectPending bool
 	lastSeen         time.Time
 	offlineDeadline  time.Time
+	disconnectedAt   time.Time
 	generation       uint64
 	probePending     bool
 	probeID          uint64
@@ -107,23 +108,26 @@ func (t *presenceTracker) observeNeighbor(observed *neighborObservation, now tim
 	return "", state
 }
 
-func (t *presenceTracker) observeTraffic(mac net.HardwareAddr, now time.Time) (string, *deviceState) {
+func (t *presenceTracker) observeTraffic(mac net.HardwareAddr, observedAt time.Time) (string, *deviceState) {
 	state := t.states[mac.String()]
 	if state == nil {
 		return "", nil
 	}
+	if observedAt.Before(state.lastSeen) || (!state.online && !observedAt.After(state.disconnectedAt)) {
+		return "", state
+	}
 	if !state.verified {
 		state.verified = true
-		t.markSeen(state, now)
+		t.markSeen(state, observedAt)
 		return "", state
 	}
 	if !state.online {
 		state.online = true
 		state.reconnectPending = false
-		t.markSeen(state, now)
+		t.markSeen(state, observedAt)
 		return "device.connected", state
 	}
-	t.markSeen(state, now)
+	t.markSeen(state, observedAt)
 	return "", state
 }
 
@@ -202,6 +206,7 @@ func (t *presenceTracker) applyProbe(result probeResult) (string, *deviceState) 
 	state.online = false
 	state.reconnectPending = false
 	state.offlineDeadline = time.Time{}
+	state.disconnectedAt = result.checked
 	state.generation++
 	return "device.disconnected", state
 }
@@ -266,7 +271,7 @@ func (c *Collector) Start(ctx context.Context, emitter collector.Emitter) error 
 		return err
 	}
 	tracker := newPresenceTracker(c.interfaceName, c.offlineTimeout, states)
-	traffic := make(chan net.HardwareAddr, 256)
+	traffic := make(chan trafficObservation, 256)
 	var trafficErrors <-chan error
 	if c.detectOffline {
 		errors := make(chan error, 1)
@@ -286,6 +291,10 @@ func (c *Collector) Start(ctx context.Context, emitter collector.Emitter) error 
 		}
 		return c.emit(ctx, emitter, state, eventType, now)
 	}
+	processTraffic := func(observed trafficObservation) error {
+		eventType, state := tracker.observeTraffic(observed.mac, observed.observedAt)
+		return emitEvent(eventType, state, time.Now())
+	}
 	processAsync := func() error {
 		for {
 			select {
@@ -296,13 +305,23 @@ func (c *Collector) Start(ctx context.Context, emitter collector.Emitter) error 
 					return fmt.Errorf("observe neighbor traffic: %w", err)
 				}
 				trafficErrors = nil
-			case mac := <-traffic:
-				eventType, state := tracker.observeTraffic(mac, time.Now())
-				if err := emitEvent(eventType, state, time.Now()); err != nil {
+			case observed := <-traffic:
+				if err := processTraffic(observed); err != nil {
 					return err
 				}
 			case result := <-probeResults:
 				activeProbes--
+				draining := true
+				for draining {
+					select {
+					case observed := <-traffic:
+						if err := processTraffic(observed); err != nil {
+							return err
+						}
+					default:
+						draining = false
+					}
+				}
 				eventType, state := tracker.applyProbe(result)
 				if err := emitEvent(eventType, state, time.Now()); err != nil {
 					return err

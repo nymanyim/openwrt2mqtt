@@ -7,6 +7,7 @@ import (
 	"errors"
 	"net"
 	"syscall"
+	"time"
 )
 
 const (
@@ -16,7 +17,12 @@ const (
 	trafficReadTimeoutS = 1
 )
 
-func observeTraffic(ctx context.Context, device *net.Interface, observed chan<- net.HardwareAddr) error {
+type trafficObservation struct {
+	mac        net.HardwareAddr
+	observedAt time.Time
+}
+
+func observeTraffic(ctx context.Context, device *net.Interface, observed chan<- trafficObservation) error {
 	fd, err := syscall.LsfSocket(device.Index, 0x0003)
 	if err != nil {
 		return err
@@ -44,8 +50,9 @@ func observeTraffic(ctx context.Context, device *net.Interface, observed chan<- 
 		if mac == nil {
 			continue
 		}
+		observation := trafficObservation{mac: mac, observedAt: time.Now()}
 		select {
-		case observed <- mac:
+		case observed <- observation:
 		default:
 		}
 	}

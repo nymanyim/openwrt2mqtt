@@ -92,6 +92,21 @@ func TestTrafficInvalidatesPendingProbe(t *testing.T) {
 	}
 }
 
+func TestQueuedTrafficBeforeDisconnectDoesNotReconnect(t *testing.T) {
+	tracker, state := testTracker(5 * time.Second)
+	deadline := state.lastSeen.Add(5 * time.Second)
+	queuedAt := deadline.Add(-time.Millisecond)
+	if eventType, _ := tracker.applyProbe(probeFor(state, false, deadline.Add(-probeWindow), deadline)); eventType != "device.disconnected" {
+		t.Fatalf("disconnect event = %q", eventType)
+	}
+	if eventType, _ := tracker.observeTraffic(state.mac, queuedAt); eventType != "" || state.online {
+		t.Fatalf("queued traffic reconnected device: event=%q state=%#v", eventType, state)
+	}
+	if eventType, _ := tracker.observeTraffic(state.mac, deadline.Add(time.Millisecond)); eventType != "device.connected" || !state.online {
+		t.Fatalf("new traffic did not reconnect device: event=%q state=%#v", eventType, state)
+	}
+}
+
 func TestWeakNeighborDoesNotRefreshConfirmedPresence(t *testing.T) {
 	tracker, state := testTracker(5 * time.Second)
 	lastSeen := state.lastSeen
