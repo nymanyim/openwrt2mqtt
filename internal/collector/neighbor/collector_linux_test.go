@@ -147,6 +147,15 @@ func TestProbeSuccessClearsOfflineDeadline(t *testing.T) {
 	}
 }
 
+func TestUnconfirmedNewNeighborDoesNotEmitConnected(t *testing.T) {
+	tracker := newPresenceTracker("br-lan", 5*time.Second, make(map[string]*deviceState))
+	mac, _ := net.ParseMAC("02:00:00:00:00:02")
+	observed := &neighborObservation{ip: net.IPv4(192, 0, 2, 11), mac: mac, active: true, confirmed: false}
+	if eventType, state := tracker.observeNeighbor(observed, time.Unix(100, 0)); eventType != "" || state != nil {
+		t.Fatalf("unconfirmed neighbor changed presence: event=%q state=%#v", eventType, state)
+	}
+}
+
 func TestStartupBaselineRequiresPositiveEvidence(t *testing.T) {
 	mac, _ := net.ParseMAC("02:00:00:00:00:01")
 	state := &deviceState{ip: net.IPv4(192, 0, 2, 10), mac: mac, online: true}

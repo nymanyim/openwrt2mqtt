@@ -85,6 +85,9 @@ func (t *presenceTracker) observeNeighbor(observed *neighborObservation, now tim
 	key := observed.mac.String()
 	state := t.states[key]
 	if state == nil {
+		if !observed.confirmed {
+			return "", nil
+		}
 		state = newDeviceState(t.interfaceName, observed, true, now)
 		t.states[key] = state
 		return "device.connected", state
@@ -97,6 +100,12 @@ func (t *presenceTracker) observeNeighbor(observed *neighborObservation, now tim
 	}
 	if !state.verified {
 		state.verified = true
+		if !state.online {
+			state.online = true
+			state.reconnectPending = false
+			t.markSeen(state, now)
+			return "device.connected", state
+		}
 		t.markSeen(state, now)
 		return "", state
 	}
