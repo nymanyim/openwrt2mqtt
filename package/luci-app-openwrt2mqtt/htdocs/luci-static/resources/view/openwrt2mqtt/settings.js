@@ -275,17 +275,9 @@ return view.extend({
 		o = bindOption(s.taboption('quick', form.Value, '_username', _('Username')), 'mqtt', 'username', 'mqtt');
 		o.optional = true;
 
-		o = s.taboption('quick', form.Value, '_password', _('Password'));
+		o = bindOption(s.taboption('quick', form.Value, '_password', _('Password')), 'mqtt', 'password', 'mqtt');
 		o.password = true;
 		o.optional = true;
-		o.load = function() { return ''; };
-		o.write = function(sectionId, value) {
-			if (value) {
-				ensureSection('mqtt', 'mqtt');
-				uci.set('openwrt2mqtt', 'mqtt', 'password', value);
-			}
-		};
-		o.remove = function() {};
 
 		o = s.taboption('quick', form.Button, '_test_mqtt', '');
 		o.inputtitle = _('Test connection');
