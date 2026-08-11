@@ -143,8 +143,11 @@ jobs:
 
   build:
     name: OpenWrt 25.12.5 rockchip/armv8
-    if: ${{ github.event_name != 'pull_request' }}
     needs: test
+    if: >-
+      always() &&
+      needs.test.result == 'success' &&
+      github.event_name != 'pull_request'
     runs-on: ubuntu-24.04
     timeout-minutes: 90
     steps:
@@ -246,8 +249,7 @@ jobs:
           script: |
             const testResult = '${{ needs.test.result }}';
             const buildResult = '${{ needs.build.result }}';
-            const result = testResult === 'success' ? buildResult : testResult;
-            const status = result === 'success' ? 'PASS' : 'FAIL';
+            const status = testResult === 'success' && buildResult === 'success' ? 'PASS' : 'FAIL';
             const runURL = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
             await github.rest.issues.createComment({
               owner: context.repo.owner,

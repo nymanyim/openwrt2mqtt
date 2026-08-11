@@ -411,6 +411,8 @@ func TestBuildWorkflowIncludesSimplifiedChinesePackage(t *testing.T) {
 		"target_commitish: ${{ needs.test.outputs.source_sha }}",
 		"generate_release_notes: true",
 		"release-assets/SHA256SUMS",
+		"always() &&\n      needs.test.result == 'success' &&\n      github.event_name != 'pull_request'",
+		"const status = testResult === 'success' && buildResult === 'success' ? 'PASS' : 'FAIL';",
 	} {
 		if !strings.Contains(text, expected) {
 			t.Fatalf("build workflow is missing %q", expected)
