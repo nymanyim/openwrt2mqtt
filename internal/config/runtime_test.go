@@ -66,7 +66,7 @@ func TestFromEnvironmentRejectsInvalidDeviceConnectedFlag(t *testing.T) {
 }
 
 func TestFromEnvironmentAcceptsMinimumOfflineTimeout(t *testing.T) {
-	for _, value := range []string{"3s", "3000ms", "0.05m"} {
+	for _, value := range []string{"5s", "5000ms", "0.0833333334m"} {
 		t.Run(value, func(t *testing.T) {
 			t.Setenv("OPENWRT2MQTT_ROUTER_ID", "router-a")
 			t.Setenv("OPENWRT2MQTT_OFFLINE_TIMEOUT", value)
@@ -75,15 +75,15 @@ func TestFromEnvironmentAcceptsMinimumOfflineTimeout(t *testing.T) {
 			if err != nil {
 				t.Fatalf("FromEnvironment() error = %v", err)
 			}
-			if config.OfflineTimeout != 3*time.Second {
-				t.Fatalf("OfflineTimeout = %s, want 3s", config.OfflineTimeout)
+			if config.OfflineTimeout < 5*time.Second {
+				t.Fatalf("OfflineTimeout = %s, want at least 5s", config.OfflineTimeout)
 			}
 		})
 	}
 }
 
 func TestFromEnvironmentRejectsOfflineTimeoutBelowMinimum(t *testing.T) {
-	for _, value := range []string{"1s", "2s", "2999ms"} {
+	for _, value := range []string{"1s", "3s", "4999ms"} {
 		t.Run(value, func(t *testing.T) {
 			t.Setenv("OPENWRT2MQTT_ROUTER_ID", "router-a")
 			t.Setenv("OPENWRT2MQTT_OFFLINE_TIMEOUT", value)
@@ -92,7 +92,7 @@ func TestFromEnvironmentRejectsOfflineTimeoutBelowMinimum(t *testing.T) {
 			if err == nil {
 				t.Fatal("FromEnvironment() expected an error")
 			}
-			if !strings.Contains(err.Error(), "must be at least 3s") {
+			if !strings.Contains(err.Error(), "must be at least 5s") {
 				t.Fatalf("error = %q", err)
 			}
 		})

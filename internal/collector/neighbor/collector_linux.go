@@ -32,9 +32,9 @@ const (
 	ndaLinkAddress      = 2
 	netlinkBufferSize   = 64 * 1024
 	maxConcurrentProbes = 8
-	probeAttempts       = 3
-	probeWindow         = 600 * time.Millisecond
-	probeInterval       = 100 * time.Millisecond
+	probeAttempts       = 5
+	probeWindow         = time.Second
+	probeInterval       = 150 * time.Millisecond
 )
 
 type deviceState struct {

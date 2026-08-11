@@ -19,7 +19,7 @@ func probeFor(state *deviceState, online bool, started, checked time.Time) probe
 }
 
 func TestOfflineTimeoutStartsAtFirstActualFailure(t *testing.T) {
-	tracker, state := testTracker(3 * time.Second)
+	tracker, state := testTracker(5 * time.Second)
 	started := time.Unix(101, 0)
 	if eventType, _ := tracker.applyProbe(probeFor(state, false, started, started.Add(250*time.Millisecond))); eventType != "" {
 		t.Fatalf("first failure emitted %q", eventType)
@@ -33,30 +33,30 @@ func TestOfflineTimeoutStartsAtFirstActualFailure(t *testing.T) {
 }
 
 func TestContinuousFailureEmitsOneDisconnect(t *testing.T) {
-	tracker, state := testTracker(3 * time.Second)
+	tracker, state := testTracker(5 * time.Second)
 	started := time.Unix(101, 0)
 	tracker.applyProbe(probeFor(state, false, started, started.Add(probeWindow)))
-	eventType, _ := tracker.applyProbe(probeFor(state, false, started.Add(3*time.Second), started.Add(3*time.Second+probeWindow)))
+	eventType, _ := tracker.applyProbe(probeFor(state, false, started.Add(5*time.Second), started.Add(5*time.Second+probeWindow)))
 	if eventType != "device.disconnected" {
 		t.Fatalf("event = %q", eventType)
 	}
-	if eventType, _ = tracker.applyProbe(probeFor(state, false, started.Add(4*time.Second), started.Add(4*time.Second+probeWindow))); eventType != "" {
+	if eventType, _ = tracker.applyProbe(probeFor(state, false, started.Add(6*time.Second), started.Add(6*time.Second+probeWindow))); eventType != "" {
 		t.Fatalf("repeated failure emitted %q", eventType)
 	}
 }
 
-func TestThreeSecondTimeoutHasBoundedDetectionLatency(t *testing.T) {
-	const timeout = 3 * time.Second
-	if maximum := time.Second + timeout + probeWindow; maximum >= 5*time.Second {
-		t.Fatalf("maximum detection latency = %v", maximum)
-	}
-	if typical := timeout + probeWindow; typical >= 4*time.Second {
+func TestFiveSecondTimeoutHasBoundedDetectionLatency(t *testing.T) {
+	const timeout = 5 * time.Second
+	if typical := timeout + probeWindow; typical > 6*time.Second {
 		t.Fatalf("typical detection latency = %v", typical)
+	}
+	if maximum := time.Second + timeout + probeWindow; maximum > 7*time.Second {
+		t.Fatalf("maximum detection latency = %v", maximum)
 	}
 }
 
 func TestTrafficInvalidatesPendingProbe(t *testing.T) {
-	tracker, state := testTracker(3 * time.Second)
+	tracker, state := testTracker(5 * time.Second)
 	request := probeFor(state, false, time.Unix(101, 0), time.Unix(105, 0))
 	if eventType, _ := tracker.observeTraffic(state.mac, time.Unix(102, 0)); eventType != "" {
 		t.Fatalf("traffic emitted %q", eventType)
@@ -70,11 +70,11 @@ func TestTrafficInvalidatesPendingProbe(t *testing.T) {
 }
 
 func TestTrafficTimelineSuppressesFalseDisconnectAndReconnect(t *testing.T) {
-	tracker, state := testTracker(3 * time.Second)
+	tracker, state := testTracker(5 * time.Second)
 	started := time.Unix(101, 0)
 	tracker.applyProbe(probeFor(state, false, started, started.Add(time.Second)))
-	pending := probeFor(state, false, started.Add(3*time.Second), started.Add(4*time.Second))
-	if eventType, _ := tracker.observeTraffic(state.mac, started.Add(3500*time.Millisecond)); eventType != "" {
+	pending := probeFor(state, false, started.Add(5*time.Second), started.Add(6*time.Second))
+	if eventType, _ := tracker.observeTraffic(state.mac, started.Add(5500*time.Millisecond)); eventType != "" {
 		t.Fatalf("recovery traffic emitted %q", eventType)
 	}
 	if eventType, _ := tracker.applyProbe(pending); eventType != "" {
@@ -86,7 +86,7 @@ func TestTrafficTimelineSuppressesFalseDisconnectAndReconnect(t *testing.T) {
 }
 
 func TestNeighborEvidenceInvalidatesPendingProbe(t *testing.T) {
-	tracker, state := testTracker(3 * time.Second)
+	tracker, state := testTracker(5 * time.Second)
 	request := probeFor(state, false, time.Unix(101, 0), time.Unix(105, 0))
 	observation := &neighborObservation{ip: state.ip, mac: state.mac, active: true}
 	if eventType, _ := tracker.observeNeighbor(observation, time.Unix(102, 0)); eventType != "" {
@@ -98,7 +98,7 @@ func TestNeighborEvidenceInvalidatesPendingProbe(t *testing.T) {
 }
 
 func TestProbeSuccessClearsFailure(t *testing.T) {
-	tracker, state := testTracker(3 * time.Second)
+	tracker, state := testTracker(5 * time.Second)
 	started := time.Unix(101, 0)
 	tracker.applyProbe(probeFor(state, false, started, started.Add(250*time.Millisecond)))
 	if eventType, _ := tracker.applyProbe(probeFor(state, true, started.Add(time.Second), started.Add(1250*time.Millisecond))); eventType != "" {
@@ -112,7 +112,7 @@ func TestProbeSuccessClearsFailure(t *testing.T) {
 func TestStartupBaselineRequiresPositiveEvidence(t *testing.T) {
 	mac, _ := net.ParseMAC("02:00:00:00:00:01")
 	state := &deviceState{ip: net.IPv4(192, 0, 2, 10), mac: mac, online: true}
-	tracker := newPresenceTracker("br-lan", 3*time.Second, map[string]*deviceState{mac.String(): state})
+	tracker := newPresenceTracker("br-lan", 5*time.Second, map[string]*deviceState{mac.String(): state})
 	checked := time.Unix(101, 0)
 	if eventType, _ := tracker.applyProbe(probeFor(state, false, checked, checked.Add(time.Second))); eventType != "" || state.verified {
 		t.Fatalf("startup failure changed baseline: event=%q state=%#v", eventType, state)
@@ -123,7 +123,7 @@ func TestStartupBaselineRequiresPositiveEvidence(t *testing.T) {
 }
 
 func TestReconnectRequiresPositiveEvidence(t *testing.T) {
-	tracker, state := testTracker(3 * time.Second)
+	tracker, state := testTracker(5 * time.Second)
 	state.online = false
 	state.reconnectPending = true
 	checked := time.Unix(101, 0)
@@ -137,7 +137,7 @@ func TestReconnectRequiresPositiveEvidence(t *testing.T) {
 }
 
 func TestOnlyOneProbePerDevice(t *testing.T) {
-	tracker, state := testTracker(3 * time.Second)
+	tracker, state := testTracker(5 * time.Second)
 	first := tracker.beginProbes()
 	if got := len(first); got != 1 {
 		t.Fatalf("first probe count = %d", got)

@@ -14,7 +14,7 @@ const (
 	defaultTopicPrefix    = "openwrt2mqtt"
 	defaultMQTTTimeout    = 10 * time.Second
 	defaultOfflineTimeout = 5 * time.Second
-	minimumOfflineTimeout = 3 * time.Second
+	minimumOfflineTimeout = 5 * time.Second
 	defaultBusCapacity    = 128
 )
 
