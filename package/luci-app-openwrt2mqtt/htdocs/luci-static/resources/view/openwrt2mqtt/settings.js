@@ -200,6 +200,30 @@ function configurePositiveIntegerInput(node, optionName) {
 	}, true);
 }
 
+function passwordIcon() {
+	return E('svg', {
+		'aria-hidden': 'true',
+		'viewBox': '0 0 24 24',
+		'width': '18',
+		'height': '18'
+	}, [
+		E('path', {
+			'd': 'M2 12s3.5-6 10-6 10 6 10 6-3.5 6-10 6-10-6-10-6z',
+			'fill': 'none',
+			'stroke': 'currentColor',
+			'stroke-width': '2'
+		}),
+		E('circle', {
+			'cx': '12',
+			'cy': '12',
+			'r': '2.5',
+			'fill': 'none',
+			'stroke': 'currentColor',
+			'stroke-width': '2'
+		})
+	]);
+}
+
 function configurePasswordInput(node, optionName) {
 	var row = node.querySelector('[data-name="' + optionName + '"]');
 	var field = row !== null ? row.querySelector(':scope > .cbi-value-field') : null;
@@ -209,22 +233,36 @@ function configurePasswordInput(node, optionName) {
 
 	input.dataset.openwrt2mqttPassword = 'true';
 	input.type = 'password';
+	input.style.paddingRight = '3em';
+	field.style.position = 'relative';
+
 	var button = E('button', {
 		type: 'button',
 		'class': 'cbi-button',
 		'title': _('Show password'),
 		'aria-label': _('Show password'),
 		'aria-pressed': 'false',
+		'style': 'position:absolute;right:.35em;top:50%;transform:translateY(-50%);display:none;align-items:center;justify-content:center;min-width:2em;padding:.25em;border:0;background:transparent;box-shadow:none;color:inherit',
 		'click': function() {
 			var visible = input.type === 'text';
 			input.type = visible ? 'password' : 'text';
-			button.textContent = visible ? _('Show password') : _('Hide password');
-			button.title = button.textContent;
-			button.setAttribute('aria-label', button.textContent);
+			button.textContent = '';
+			button.appendChild(passwordIcon());
+			button.title = visible ? _('Show password') : _('Hide password');
+			button.setAttribute('aria-label', button.title);
 			button.setAttribute('aria-pressed', visible ? 'false' : 'true');
 		}
-	}, _('Show password'));
+	}, passwordIcon());
+
+	function updatePasswordButton() {
+		button.style.display = input.value ? 'inline-flex' : 'none';
+		if (!input.value)
+			input.type = 'password';
+	}
+
+	input.addEventListener('input', updatePasswordButton, true);
 	field.appendChild(button);
+	updatePasswordButton();
 }
 
 function enhanceSettingsForm(node) {
@@ -304,7 +342,6 @@ return view.extend({
 		o.optional = true;
 
 		o = bindOption(s.taboption('quick', form.Value, '_password', _('Password')), 'mqtt', 'password', 'mqtt');
-		o.password = true;
 		o.optional = true;
 
 		o = s.taboption('quick', form.Button, '_test_mqtt', '');
