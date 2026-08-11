@@ -3,134 +3,173 @@
 package neighbor
 
 import (
-	"context"
+	"net"
 	"testing"
 	"time"
 )
 
-func TestApplyProbeResultRequestsConfirmationBeforeOfflineDeadline(t *testing.T) {
-	state := &deviceState{online: true, verified: true}
-	probeStarted := time.Unix(100, 0)
-	probeInterval := time.Second
-	offlineTimeout := 5 * time.Second
+func testTracker(timeout time.Duration) (*presenceTracker, *deviceState) {
+	mac, _ := net.ParseMAC("02:00:00:00:00:01")
+	state := &deviceState{ip: net.IPv4(192, 0, 2, 10), mac: mac, online: true, verified: true, lastSeen: time.Unix(100, 0)}
+	return newPresenceTracker("br-lan", timeout, map[string]*deviceState{mac.String(): state}), state
+}
 
-	eventType, confirmOffline := applyProbeResult(state, false, probeStarted, probeStarted.Add(probeTimeout), probeInterval, offlineTimeout)
-	if eventType != "" || confirmOffline {
-		t.Fatal("first failed probe requested early confirmation")
-	}
-	wantFailedSince := probeStarted.Add(-probeInterval)
-	if !state.failedSince.Equal(wantFailedSince) {
-		t.Fatalf("failedSince = %v, want %v", state.failedSince, wantFailedSince)
-	}
+func probeFor(state *deviceState, online bool, started, checked time.Time) probeResult {
+	return probeResult{probeRequest: probeRequest{key: state.mac.String(), ip: append(net.IP(nil), state.ip...), mac: append(net.HardwareAddr(nil), state.mac...), generation: state.generation, probeID: state.probeID}, online: online, started: started, checked: checked}
+}
 
-	deadline := wantFailedSince.Add(offlineTimeout)
-	beforeWindow := probeStarted.Add(2*probeInterval + probeTimeout)
-	eventType, confirmOffline = applyProbeResult(state, false, beforeWindow.Add(-probeTimeout), beforeWindow, probeInterval, offlineTimeout)
-	if eventType != "" || confirmOffline {
-		t.Fatal("probe requested confirmation before the confirmation window")
+func TestOfflineTimeoutStartsAtFirstActualFailure(t *testing.T) {
+	tracker, state := testTracker(3 * time.Second)
+	started := time.Unix(101, 0)
+	if eventType, _ := tracker.applyProbe(probeFor(state, false, started, started.Add(250*time.Millisecond))); eventType != "" {
+		t.Fatalf("first failure emitted %q", eventType)
 	}
-
-	insideWindow := probeStarted.Add(3*probeInterval + probeTimeout)
-	eventType, confirmOffline = applyProbeResult(state, false, insideWindow.Add(-probeTimeout), insideWindow, probeInterval, offlineTimeout)
-	if eventType != "" || !confirmOffline {
-		t.Fatal("probe did not request confirmation inside the confirmation window")
+	if !state.failedSince.Equal(started) {
+		t.Fatalf("failedSince = %v, want %v", state.failedSince, started)
 	}
-	confirmationBudget := deadline.Sub(insideWindow)
-	if confirmationBudget < confirmationWindow {
-		t.Fatalf("confirmation budget = %v, want at least %v", confirmationBudget, confirmationWindow)
+	if eventType, _ := tracker.applyProbe(probeFor(state, false, started.Add(2*time.Second), started.Add(2250*time.Millisecond))); eventType != "" {
+		t.Fatalf("failure before timeout emitted %q", eventType)
 	}
 }
 
-func TestConfirmationProbeIntervalUsesAvailableWindow(t *testing.T) {
-	remaining := 750 * time.Millisecond
-	want := 175 * time.Millisecond
-	if got := confirmationProbeInterval(remaining); got != want {
-		t.Fatalf("confirmation interval = %v, want %v", got, want)
+func TestContinuousFailureEmitsOneDisconnect(t *testing.T) {
+	tracker, state := testTracker(3 * time.Second)
+	started := time.Unix(101, 0)
+	tracker.applyProbe(probeFor(state, false, started, started.Add(250*time.Millisecond)))
+	eventType, _ := tracker.applyProbe(probeFor(state, false, started.Add(3*time.Second), started.Add(3250*time.Millisecond)))
+	if eventType != "device.disconnected" {
+		t.Fatalf("event = %q", eventType)
 	}
-	if lastAttempt := time.Duration(confirmationAttempts-1) * want; lastAttempt+confirmationTimeout > remaining {
-		t.Fatalf("confirmation attempts exceed remaining window: last=%v timeout=%v remaining=%v", lastAttempt, confirmationTimeout, remaining)
-	}
-}
-
-func TestConfirmationProbeIntervalKeepsMinimumSpacing(t *testing.T) {
-	if got := confirmationProbeInterval(500 * time.Millisecond); got != confirmationInterval {
-		t.Fatalf("confirmation interval = %v, want minimum %v", got, confirmationInterval)
+	if eventType, _ = tracker.applyProbe(probeFor(state, false, started.Add(4*time.Second), started.Add(4250*time.Millisecond))); eventType != "" {
+		t.Fatalf("repeated failure emitted %q", eventType)
 	}
 }
 
-func TestWaitUntilHonorsDeadline(t *testing.T) {
-	const wait = 20 * time.Millisecond
-	started := time.Now()
-	if !waitUntil(context.Background(), started.Add(wait)) {
-		t.Fatal("waitUntil stopped before the deadline")
+func TestTrafficInvalidatesPendingProbe(t *testing.T) {
+	tracker, state := testTracker(3 * time.Second)
+	request := probeFor(state, false, time.Unix(101, 0), time.Unix(105, 0))
+	if eventType, _ := tracker.observeTraffic(state.mac, time.Unix(102, 0)); eventType != "" {
+		t.Fatalf("traffic emitted %q", eventType)
 	}
-	if elapsed := time.Since(started); elapsed < wait {
-		t.Fatalf("waitUntil returned after %v, want at least %v", elapsed, wait)
+	if eventType, _ := tracker.applyProbe(request); eventType != "" {
+		t.Fatalf("stale probe emitted %q", eventType)
 	}
-}
-
-func TestWaitUntilStopsWhenContextIsCanceled(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	cancel()
-	if waitUntil(ctx, time.Now().Add(time.Second)) {
-		t.Fatal("waitUntil reported reaching the deadline after cancellation")
+	if !state.online || !state.failedSince.IsZero() {
+		t.Fatalf("unexpected state: %#v", state)
 	}
 }
 
-func TestApplyProbeResultClearsFailureAfterSuccess(t *testing.T) {
-	state := &deviceState{online: true, verified: true}
-	started := time.Unix(100, 0)
+func TestTrafficTimelineSuppressesFalseDisconnectAndReconnect(t *testing.T) {
+	tracker, state := testTracker(3 * time.Second)
+	started := time.Unix(101, 0)
+	tracker.applyProbe(probeFor(state, false, started, started.Add(time.Second)))
+	pending := probeFor(state, false, started.Add(3*time.Second), started.Add(4*time.Second))
+	if eventType, _ := tracker.observeTraffic(state.mac, started.Add(3500*time.Millisecond)); eventType != "" {
+		t.Fatalf("recovery traffic emitted %q", eventType)
+	}
+	if eventType, _ := tracker.applyProbe(pending); eventType != "" {
+		t.Fatalf("stale final probe emitted %q", eventType)
+	}
+	if !state.online || !state.failedSince.IsZero() {
+		t.Fatalf("unexpected final state: %#v", state)
+	}
+}
 
-	applyProbeResult(state, false, started, started.Add(250*time.Millisecond), time.Second, 5*time.Second)
-	eventType, confirmOffline := applyProbeResult(state, true, started.Add(time.Second), started.Add(time.Second), time.Second, 5*time.Second)
-	if eventType != "" || confirmOffline {
-		t.Fatal("successful probe produced an event")
+func TestNeighborEvidenceInvalidatesPendingProbe(t *testing.T) {
+	tracker, state := testTracker(3 * time.Second)
+	request := probeFor(state, false, time.Unix(101, 0), time.Unix(105, 0))
+	observation := &neighborObservation{ip: state.ip, mac: state.mac, active: true}
+	if eventType, _ := tracker.observeNeighbor(observation, time.Unix(102, 0)); eventType != "" {
+		t.Fatalf("neighbor evidence emitted %q", eventType)
+	}
+	if eventType, _ := tracker.applyProbe(request); eventType != "" {
+		t.Fatalf("stale probe emitted %q", eventType)
+	}
+}
+
+func TestProbeSuccessClearsFailure(t *testing.T) {
+	tracker, state := testTracker(3 * time.Second)
+	started := time.Unix(101, 0)
+	tracker.applyProbe(probeFor(state, false, started, started.Add(250*time.Millisecond)))
+	if eventType, _ := tracker.applyProbe(probeFor(state, true, started.Add(time.Second), started.Add(1250*time.Millisecond))); eventType != "" {
+		t.Fatalf("success emitted %q", eventType)
 	}
 	if !state.failedSince.IsZero() {
 		t.Fatalf("failedSince was not cleared: %v", state.failedSince)
 	}
 }
 
-func TestApplyProbeResultRequiresProbeBeforeReconnect(t *testing.T) {
-	state := &deviceState{online: false, verified: true, reconnectPending: true}
-	checked := time.Unix(100, 0)
-
-	eventType, confirmOffline := applyProbeResult(state, true, checked, checked, time.Second, 5*time.Second)
-	if eventType != "device.connected" || confirmOffline {
-		t.Fatalf("event = %q, confirmation = %v", eventType, confirmOffline)
+func TestStartupBaselineRequiresPositiveEvidence(t *testing.T) {
+	mac, _ := net.ParseMAC("02:00:00:00:00:01")
+	state := &deviceState{ip: net.IPv4(192, 0, 2, 10), mac: mac, online: true}
+	tracker := newPresenceTracker("br-lan", 3*time.Second, map[string]*deviceState{mac.String(): state})
+	checked := time.Unix(101, 0)
+	if eventType, _ := tracker.applyProbe(probeFor(state, false, checked, checked.Add(time.Second))); eventType != "" || state.verified {
+		t.Fatalf("startup failure changed baseline: event=%q state=%#v", eventType, state)
 	}
-	if !state.online || state.reconnectPending {
-		t.Fatalf("unexpected state after reconnect: %#v", state)
-	}
-}
-
-func TestApplyProbeResultRejectsUnconfirmedReconnect(t *testing.T) {
-	state := &deviceState{online: false, verified: true, reconnectPending: true}
-	checked := time.Unix(100, 0)
-
-	eventType, confirmOffline := applyProbeResult(state, false, checked, checked, time.Second, 5*time.Second)
-	if eventType != "" || confirmOffline {
-		t.Fatal("failed reconnect probe produced an event")
-	}
-	if state.online || state.reconnectPending {
-		t.Fatalf("unexpected state after failed reconnect: %#v", state)
+	if eventType, _ := tracker.applyProbe(probeFor(state, true, checked.Add(time.Second), checked.Add(2*time.Second))); eventType != "" || !state.verified {
+		t.Fatalf("startup success failed baseline verification: event=%q state=%#v", eventType, state)
 	}
 }
 
-func TestApplyProbeResultEstablishesStartupBaselineWithoutEvent(t *testing.T) {
-	state := &deviceState{online: true}
-	checked := time.Unix(100, 0)
-	eventType, confirmOffline := applyProbeResult(state, true, checked, checked, time.Second, 5*time.Second)
-	if eventType != "" || confirmOffline || !state.verified {
-		t.Fatalf("unexpected startup baseline result: event=%q confirmation=%v state=%#v", eventType, confirmOffline, state)
+func TestReconnectRequiresPositiveEvidence(t *testing.T) {
+	tracker, state := testTracker(3 * time.Second)
+	state.online = false
+	state.reconnectPending = true
+	checked := time.Unix(101, 0)
+	if eventType, _ := tracker.applyProbe(probeFor(state, false, checked, checked.Add(time.Second))); eventType != "" || state.online {
+		t.Fatalf("failed reconnect changed state: event=%q state=%#v", eventType, state)
+	}
+	state.reconnectPending = true
+	if eventType, _ := tracker.applyProbe(probeFor(state, true, checked.Add(time.Second), checked.Add(2*time.Second))); eventType != "device.connected" || !state.online {
+		t.Fatalf("successful reconnect: event=%q state=%#v", eventType, state)
 	}
 }
 
-func TestApplyProbeResultSuppressesStartupFailure(t *testing.T) {
-	state := &deviceState{online: true}
-	checked := time.Unix(100, 0)
-	eventType, confirmOffline := applyProbeResult(state, false, checked, checked, time.Second, 5*time.Second)
-	if eventType != "" || confirmOffline || state.verified || !state.failedSince.IsZero() {
-		t.Fatalf("unexpected startup failure result: event=%q confirmation=%v state=%#v", eventType, confirmOffline, state)
+func TestOnlyOneProbePerDevice(t *testing.T) {
+	tracker, state := testTracker(3 * time.Second)
+	first := tracker.beginProbes()
+	if got := len(first); got != 1 {
+		t.Fatalf("first probe count = %d", got)
+	}
+	if got := len(tracker.beginProbes()); got != 0 {
+		t.Fatalf("duplicate probe count = %d", got)
+	}
+	state.probePending = false
+	second := tracker.beginProbes()
+	if got := len(second); got != 1 {
+		t.Fatalf("next probe count = %d", got)
+	}
+	if first[0].probeID == second[0].probeID {
+		t.Fatal("probe ID was reused")
+	}
+	if eventType, _ := tracker.applyProbe(probeResult{probeRequest: first[0], online: false, started: time.Unix(101, 0), checked: time.Unix(105, 0)}); eventType != "" || !state.probePending {
+		t.Fatalf("stale probe changed current probe: event=%q state=%#v", eventType, state)
+	}
+}
+
+func TestTrafficParserAcceptsPresenceProtocols(t *testing.T) {
+	local, _ := net.ParseMAC("02:00:00:00:00:ff")
+	source, _ := net.ParseMAC("02:00:00:00:00:01")
+	for _, etherType := range []uint16{etherTypeARP, etherTypeIPv4, etherTypeIPv6} {
+		frame := make([]byte, ethernetHeaderSize)
+		copy(frame[6:12], source)
+		frame[12], frame[13] = byte(etherType>>8), byte(etherType)
+		if got := sourceMAC(frame, local); got == nil || got.String() != source.String() {
+			t.Fatalf("ether type %#x returned %v", etherType, got)
+		}
+	}
+}
+
+func TestTrafficParserRejectsInvalidSources(t *testing.T) {
+	local, _ := net.ParseMAC("02:00:00:00:00:ff")
+	for _, source := range []string{"00:00:00:00:00:00", "01:00:5e:00:00:16", local.String()} {
+		mac, _ := net.ParseMAC(source)
+		frame := make([]byte, ethernetHeaderSize)
+		copy(frame[6:12], mac)
+		frame[12], frame[13] = 0x08, 0x00
+		if got := sourceMAC(frame, local); got != nil {
+			t.Fatalf("source %s returned %v", source, got)
+		}
 	}
 }
