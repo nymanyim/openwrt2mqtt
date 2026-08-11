@@ -394,7 +394,16 @@ func TestBuildWorkflowIncludesSimplifiedChinesePackage(t *testing.T) {
 	text := string(content)
 	for _, expected := range []string{
 		"PACKAGE_luci-i18n-openwrt2mqtt-zh-cn",
-		"luci-i18n-openwrt2mqtt-zh-cn-*.apk",
+		"core_apk=\"$(find openwrt-sdk/bin/packages -type f -name 'openwrt2mqtt-*.apk' -print -quit)\"",
+		"file_tag=\"${version}-r${release}\"",
+		"file_tag=\"${short_sha}\"",
+		"artifact_name=\"openwrt2mqtt~${file_tag}\"",
+		"artifact_name=\"openwrt2mqtt-${file_tag}\"",
+		"separator=\"~\"",
+		"separator=\"-\"",
+		"artifacts/openwrt2mqtt${separator}${tag}.apk",
+		"artifacts/luci-app-openwrt2mqtt${separator}${tag}.apk",
+		"artifacts/luci-i18n-openwrt2mqtt-zh-cn${separator}${tag}.apk",
 		"-eq 3",
 		"cd artifacts",
 		"xargs -0 sha256sum",

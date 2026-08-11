@@ -91,6 +91,8 @@ jobs:
     outputs:
       source_sha: ${{ steps.package.outputs.source_sha }}
       package_version: ${{ steps.package.outputs.version }}
+      package_release: ${{ steps.package.outputs.release }}
+      file_tag: ${{ steps.package.outputs.file_tag }}
       artifact_name: ${{ steps.package.outputs.artifact_name }}
     steps:
       - name: Check out source
@@ -114,11 +116,25 @@ jobs:
         run: |
           set -euo pipefail
           version="$(sed -n 's/^PKG_VERSION:=//p' package/openwrt2mqtt/Makefile)"
+          release="$(sed -n 's/^PKG_RELEASE:=//p' package/openwrt2mqtt/Makefile)"
           test -n "${version}"
-          echo "version=${version}" >> "${GITHUB_OUTPUT}"
-          echo "source_sha=$(git rev-parse HEAD)" >> "${GITHUB_OUTPUT}"
+          test -n "${release}"
+          source_sha="$(git rev-parse HEAD)"
           short_sha="$(git rev-parse --short=7 HEAD)"
-          echo "artifact_name=openwrt2mqtt-${short_sha}" >> "${GITHUB_OUTPUT}"
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ "${{ inputs.release }}" = "true" ]; then
+            file_tag="${version}-r${release}"
+            artifact_name="openwrt2mqtt-${file_tag}"
+          else
+            file_tag="${short_sha}"
+            artifact_name="openwrt2mqtt~${file_tag}"
+          fi
+          {
+            echo "version=${version}"
+            echo "release=${release}"
+            echo "source_sha=${source_sha}"
+            echo "file_tag=${file_tag}"
+            echo "artifact_name=${artifact_name}"
+          } >> "${GITHUB_OUTPUT}"
 
       - name: Set up Go
         uses: actions/setup-go@v5
@@ -211,11 +227,22 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p artifacts
-          find openwrt-sdk/bin/packages -type f \
-            \( -name 'openwrt2mqtt-*.apk' -o -name 'luci-app-openwrt2mqtt-*.apk' -o -name 'luci-i18n-openwrt2mqtt-zh-cn-*.apk' \) \
-            -exec cp -v {} artifacts/ \;
+          core_apk="$(find openwrt-sdk/bin/packages -type f -name 'openwrt2mqtt-*.apk' -print -quit)"
+          luci_apk="$(find openwrt-sdk/bin/packages -type f -name 'luci-app-openwrt2mqtt-*.apk' -print -quit)"
+          i18n_apk="$(find openwrt-sdk/bin/packages -type f -name 'luci-i18n-openwrt2mqtt-zh-cn-*.apk' -print -quit)"
+          test -n "${core_apk}"
+          test -n "${luci_apk}"
+          test -n "${i18n_apk}"
+          tag="${{ needs.test.outputs.file_tag }}"
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ "${{ inputs.release }}" = "true" ]; then
+            separator="-"
+          else
+            separator="~"
+          fi
+          cp -v "${core_apk}" "artifacts/openwrt2mqtt${separator}${tag}.apk"
+          cp -v "${luci_apk}" "artifacts/luci-app-openwrt2mqtt${separator}${tag}.apk"
+          cp -v "${i18n_apk}" "artifacts/luci-i18n-openwrt2mqtt-zh-cn${separator}${tag}.apk"
           test "$(find artifacts -maxdepth 1 -type f -name '*.apk' | wc -l)" -eq 3
-          test "$(find artifacts -maxdepth 1 -type f -name 'luci-i18n-openwrt2mqtt-zh-cn-*.apk' | wc -l)" -eq 1
           (
             cd artifacts
             find . -maxdepth 1 -type f -name '*.apk' -printf '%f\0' \
