@@ -35,13 +35,23 @@ func TestOfflineTimeoutStartsAtFirstActualFailure(t *testing.T) {
 func TestContinuousFailureEmitsOneDisconnect(t *testing.T) {
 	tracker, state := testTracker(3 * time.Second)
 	started := time.Unix(101, 0)
-	tracker.applyProbe(probeFor(state, false, started, started.Add(250*time.Millisecond)))
-	eventType, _ := tracker.applyProbe(probeFor(state, false, started.Add(3*time.Second), started.Add(3250*time.Millisecond)))
+	tracker.applyProbe(probeFor(state, false, started, started.Add(probeWindow)))
+	eventType, _ := tracker.applyProbe(probeFor(state, false, started.Add(3*time.Second), started.Add(3*time.Second+probeWindow)))
 	if eventType != "device.disconnected" {
 		t.Fatalf("event = %q", eventType)
 	}
-	if eventType, _ = tracker.applyProbe(probeFor(state, false, started.Add(4*time.Second), started.Add(4250*time.Millisecond))); eventType != "" {
+	if eventType, _ = tracker.applyProbe(probeFor(state, false, started.Add(4*time.Second), started.Add(4*time.Second+probeWindow))); eventType != "" {
 		t.Fatalf("repeated failure emitted %q", eventType)
+	}
+}
+
+func TestThreeSecondTimeoutHasBoundedDetectionLatency(t *testing.T) {
+	const timeout = 3 * time.Second
+	if maximum := time.Second + timeout + probeWindow; maximum >= 5*time.Second {
+		t.Fatalf("maximum detection latency = %v", maximum)
+	}
+	if typical := timeout + probeWindow; typical >= 4*time.Second {
+		t.Fatalf("typical detection latency = %v", typical)
 	}
 }
 

@@ -32,10 +32,9 @@ const (
 	ndaLinkAddress      = 2
 	netlinkBufferSize   = 64 * 1024
 	maxConcurrentProbes = 8
-	probeTimeout        = 250 * time.Millisecond
-	finalProbeAttempts  = 3
-	finalProbeTimeout   = 1200 * time.Millisecond
-	finalProbeInterval  = 350 * time.Millisecond
+	probeAttempts       = 3
+	probeWindow         = 600 * time.Millisecond
+	probeInterval       = 100 * time.Millisecond
 )
 
 type deviceState struct {
@@ -194,11 +193,11 @@ type Collector struct {
 	interfaceName, routerID string
 	offlineTimeout          time.Duration
 	detectOffline           bool
-	probeInterval           time.Duration
+	pollInterval            time.Duration
 }
 
 func NewCollector(interfaceName, routerID string, offlineTimeout time.Duration, detectOffline bool) *Collector {
-	return &Collector{interfaceName: interfaceName, routerID: routerID, offlineTimeout: offlineTimeout, detectOffline: detectOffline, probeInterval: time.Second}
+	return &Collector{interfaceName: interfaceName, routerID: routerID, offlineTimeout: offlineTimeout, detectOffline: detectOffline, pollInterval: time.Second}
 }
 
 func (c *Collector) Name() string { return "neighbor" }
@@ -250,7 +249,7 @@ func (c *Collector) Start(ctx context.Context, emitter collector.Emitter) error 
 	probeResults := make(chan probeResult, maxConcurrentProbes*2)
 	probeSlots := make(chan struct{}, maxConcurrentProbes)
 	activeProbes := 0
-	ticker := time.NewTicker(c.probeInterval)
+	ticker := time.NewTicker(c.pollInterval)
 	defer ticker.Stop()
 	buffer := make([]byte, netlinkBufferSize)
 
@@ -342,10 +341,7 @@ func runProbe(ctx context.Context, device *net.Interface, sourceIP net.IP, reque
 		return
 	}
 	started := time.Now()
-	online := probeARP(device, sourceIP, request.ip, request.mac, probeTimeout)
-	if !online {
-		online = probeARPAttempts(device, sourceIP, request.ip, request.mac, time.Now().Add(finalProbeTimeout), finalProbeAttempts, finalProbeInterval)
-	}
+	online := probeARPAttempts(device, sourceIP, request.ip, request.mac, started.Add(probeWindow), probeAttempts, probeInterval)
 	checked := time.Now()
 	<-slots
 	select {
