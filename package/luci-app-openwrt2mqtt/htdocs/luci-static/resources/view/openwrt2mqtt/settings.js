@@ -224,72 +224,66 @@ function passwordIcon() {
 	]);
 }
 
-function configurePasswordInput(node, optionName) {
-	var row = node.querySelector('[data-name="' + optionName + '"]');
-	var field = row !== null ? row.querySelector(':scope > .cbi-value-field') : null;
-	var input = field !== null ? field.querySelector('input') : null;
-	if (field === null || input === null)
-		return;
+function renderPasswordWidget(option, sectionId, cfgvalue) {
+	var value = cfgvalue !== null && cfgvalue !== undefined ? cfgvalue : option.default;
+	var widget = new ui.Textfield(Array.isArray(value) ? value.join(' ') : value, {
+		id: option.cbid(sectionId),
+		optional: option.optional || option.rmempty,
+		datatype: option.datatype,
+		placeholder: option.placeholder,
+		validate: option.getValidator(sectionId),
+		disabled: option.readonly !== null && option.readonly !== undefined ? option.readonly : option.map.readonly
+	});
+	var frame = widget.render();
+	var input = frame.querySelector('input');
+	if (input === null)
+		return frame;
 
-	field.style.position = 'relative';
+	frame.style.position = 'relative';
+	input.type = 'password';
+	input.classList.add('cbi-input-password');
 	input.style.paddingRight = '3em';
-	if (input.dataset.openwrt2mqttPassword !== 'true') {
-		input.dataset.openwrt2mqttPassword = 'true';
-		input.type = 'password';
-		for (var eventName of ['input', 'change', 'focus', 'blur']) {
-			input.addEventListener(eventName, function() {
-				configurePasswordInput(node, optionName);
-			}, true);
+
+	var button = E('button', {
+		type: 'button',
+		'class': 'cbi-button',
+		'title': _('Show password'),
+		'aria-label': _('Show password'),
+		'aria-pressed': 'false',
+		'style': 'position:absolute;right:.35em;top:50%;transform:translateY(-50%);display:none;align-items:center;justify-content:center;min-width:2em;padding:.25em;border:0;background:transparent;box-shadow:none;color:inherit',
+		'mousedown': function(event) {
+			event.preventDefault();
+		},
+		'click': function(event) {
+			event.preventDefault();
+			var visible = input.type === 'text';
+			input.type = visible ? 'password' : 'text';
+			button.title = visible ? _('Show password') : _('Hide password');
+			button.setAttribute('aria-label', button.title);
+			button.setAttribute('aria-pressed', visible ? 'false' : 'true');
 		}
-		window.requestAnimationFrame(function() {
-			configurePasswordInput(node, optionName);
-		});
-		window.setTimeout(function() {
-			configurePasswordInput(node, optionName);
-		}, 100);
+	}, passwordIcon());
+
+	function updatePasswordButton() {
+		button.style.display = input.value ? 'inline-flex' : 'none';
+		if (!input.value) {
+			input.type = 'password';
+			button.title = _('Show password');
+			button.setAttribute('aria-label', button.title);
+			button.setAttribute('aria-pressed', 'false');
+		}
 	}
 
-	var button = field.querySelector('[data-openwrt2mqtt-password-button="true"]');
-	if (button === null) {
-		button = E('button', {
-			type: 'button',
-			'class': 'cbi-button',
-			'title': _('Show password'),
-			'aria-label': _('Show password'),
-			'aria-pressed': 'false',
-			'data-openwrt2mqtt-password-button': 'true',
-			'style': 'position:absolute;right:.35em;top:50%;transform:translateY(-50%);display:none;align-items:center;justify-content:center;min-width:2em;padding:.25em;border:0;background:transparent;box-shadow:none;color:inherit',
-			'click': function() {
-				var visible = input.type === 'text';
-				input.type = visible ? 'password' : 'text';
-				button.title = visible ? _('Show password') : _('Hide password');
-				button.setAttribute('aria-label', button.title);
-				button.setAttribute('aria-pressed', visible ? 'false' : 'true');
-			}
-		}, passwordIcon());
-		field.appendChild(button);
-	}
-
-	button.style.display = input.value ? 'inline-flex' : 'none';
-	if (!input.value) {
-		input.type = 'password';
-		button.title = _('Show password');
-		button.setAttribute('aria-label', button.title);
-		button.setAttribute('aria-pressed', 'false');
-	}
+	input.addEventListener('input', updatePasswordButton, true);
+	frame.appendChild(button);
+	updatePasswordButton();
+	return frame;
 }
 
 function enhanceSettingsForm(node) {
 	attachMessageExampleButton(node, '_device_event_enabled', 'device.connected');
 	attachMessageExampleButton(node, '_device_disconnected_enabled', 'device.disconnected');
 	configurePositiveIntegerInput(node, '_offline_timeout');
-	configurePasswordInput(node, '_password');
-	if (node.dataset.openwrt2mqttPasswordObserver !== 'true') {
-		node.dataset.openwrt2mqttPasswordObserver = 'true';
-		new MutationObserver(function() {
-			configurePasswordInput(node, '_password');
-		}).observe(node, { childList: true, subtree: true });
-	}
 	return node;
 }
 
@@ -363,6 +357,9 @@ return view.extend({
 
 		o = bindOption(s.taboption('quick', form.Value, '_password', _('Password')), 'mqtt', 'password', 'mqtt');
 		o.optional = true;
+		o.renderWidget = function(sectionId, optionIndex, cfgvalue) {
+			return renderPasswordWidget(this, sectionId, cfgvalue);
+		};
 
 		o = s.taboption('quick', form.Button, '_test_mqtt', '');
 		o.inputtitle = _('Test connection');
