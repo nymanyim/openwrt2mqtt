@@ -77,9 +77,15 @@ msgstr "请输入主机和端口；未指定协议时会自动添加 tcp://。"
 
 msgid "Username"
 msgstr "用户名"
-
 msgid "Password"
 msgstr "密码"
+
+msgid "Show password"
+msgstr "显示密码"
+
+msgid "Hide password"
+msgstr "隐藏密码"
+
 
 msgid "Test connection"
 msgstr "测试连接"

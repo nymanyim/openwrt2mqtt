@@ -200,10 +200,38 @@ function configurePositiveIntegerInput(node, optionName) {
 	}, true);
 }
 
+function configurePasswordInput(node, optionName) {
+	var row = node.querySelector('[data-name="' + optionName + '"]');
+	var field = row !== null ? row.querySelector(':scope > .cbi-value-field') : null;
+	var input = field !== null ? field.querySelector('input') : null;
+	if (field === null || input === null || input.dataset.openwrt2mqttPassword === 'true')
+		return;
+
+	input.dataset.openwrt2mqttPassword = 'true';
+	input.type = 'password';
+	var button = E('button', {
+		type: 'button',
+		'class': 'cbi-button',
+		'title': _('Show password'),
+		'aria-label': _('Show password'),
+		'aria-pressed': 'false',
+		'click': function() {
+			var visible = input.type === 'text';
+			input.type = visible ? 'password' : 'text';
+			button.textContent = visible ? _('Show password') : _('Hide password');
+			button.title = button.textContent;
+			button.setAttribute('aria-label', button.textContent);
+			button.setAttribute('aria-pressed', visible ? 'false' : 'true');
+		}
+	}, _('Show password'));
+	field.appendChild(button);
+}
+
 function enhanceSettingsForm(node) {
 	attachMessageExampleButton(node, '_device_event_enabled', 'device.connected');
 	attachMessageExampleButton(node, '_device_disconnected_enabled', 'device.disconnected');
 	configurePositiveIntegerInput(node, '_offline_timeout');
+	configurePasswordInput(node, '_password');
 	return node;
 }
 
@@ -275,17 +303,9 @@ return view.extend({
 		o = bindOption(s.taboption('quick', form.Value, '_username', _('Username')), 'mqtt', 'username', 'mqtt');
 		o.optional = true;
 
-		o = s.taboption('quick', form.Value, '_password', _('Password'));
+		o = bindOption(s.taboption('quick', form.Value, '_password', _('Password')), 'mqtt', 'password', 'mqtt');
 		o.password = true;
 		o.optional = true;
-		o.load = function() { return ''; };
-		o.write = function(sectionId, value) {
-			if (value) {
-				ensureSection('mqtt', 'mqtt');
-				uci.set('openwrt2mqtt', 'mqtt', 'password', value);
-			}
-		};
-		o.remove = function() {};
 
 		o = s.taboption('quick', form.Button, '_test_mqtt', '');
 		o.inputtitle = _('Test connection');
