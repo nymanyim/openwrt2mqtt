@@ -15,6 +15,10 @@ func TestParseActiveNeighbor(t *testing.T) {
 		if observed == nil || !observed.active {
 			t.Fatalf("state %#x was not active: %#v", state, observed)
 		}
+		wantConfirmed := state == nudReachable || state == nudPermanent
+		if observed.confirmed != wantConfirmed {
+			t.Fatalf("state %#x confirmed = %v, want %v", state, observed.confirmed, wantConfirmed)
+		}
 		if observed.mac.String() != "02:11:22:33:44:55" || observed.ip.String() != "192.168.1.50" {
 			t.Fatalf("unexpected observation: %#v", observed)
 		}

@@ -15,97 +15,116 @@ func testTracker(timeout time.Duration) (*presenceTracker, *deviceState) {
 }
 
 func probeFor(state *deviceState, online bool, started, checked time.Time) probeResult {
-	return probeResult{probeRequest: probeRequest{key: state.mac.String(), ip: append(net.IP(nil), state.ip...), mac: append(net.HardwareAddr(nil), state.mac...), generation: state.generation, probeID: state.probeID}, online: online, started: started, checked: checked}
+	return probeResult{probeRequest: probeRequest{key: state.mac.String(), ip: append(net.IP(nil), state.ip...), mac: append(net.HardwareAddr(nil), state.mac...), generation: state.generation, probeID: state.probeID, deadline: state.lastSeen.Add(5 * time.Second)}, online: online, started: started, checked: checked}
 }
 
-func TestOfflineTimeoutStartsAtFirstActualFailure(t *testing.T) {
+func TestOfflineDeadlineUsesLastConfirmedEvidence(t *testing.T) {
 	tracker, state := testTracker(5 * time.Second)
-	started := time.Unix(101, 0)
-	if eventType, _ := tracker.applyProbe(probeFor(state, false, started, started.Add(250*time.Millisecond))); eventType != "" {
+	started := state.lastSeen.Add(time.Second)
+	if eventType, _ := tracker.applyProbe(probeFor(state, false, started, started.Add(probeWindow))); eventType != "" {
 		t.Fatalf("first failure emitted %q", eventType)
 	}
-	if !state.failedSince.Equal(started) {
-		t.Fatalf("failedSince = %v, want %v", state.failedSince, started)
-	}
-	if eventType, _ := tracker.applyProbe(probeFor(state, false, started.Add(2*time.Second), started.Add(2250*time.Millisecond))); eventType != "" {
-		t.Fatalf("failure before timeout emitted %q", eventType)
+	want := state.lastSeen.Add(5 * time.Second)
+	if !state.offlineDeadline.Equal(want) {
+		t.Fatalf("offlineDeadline = %v, want %v", state.offlineDeadline, want)
 	}
 }
 
-func TestContinuousFailureEmitsOneDisconnect(t *testing.T) {
+func TestFailureBeforeDeadlineDoesNotDisconnect(t *testing.T) {
 	tracker, state := testTracker(5 * time.Second)
-	started := time.Unix(101, 0)
-	tracker.applyProbe(probeFor(state, false, started, started.Add(probeWindow)))
-	eventType, _ := tracker.applyProbe(probeFor(state, false, started.Add(5*time.Second), started.Add(5*time.Second+probeWindow)))
+	checked := state.lastSeen.Add(5*time.Second - time.Millisecond)
+	if eventType, _ := tracker.applyProbe(probeFor(state, false, checked.Add(-probeWindow), checked)); eventType != "" {
+		t.Fatalf("failure before deadline emitted %q", eventType)
+	}
+	if !state.online {
+		t.Fatal("device disconnected before deadline")
+	}
+}
+
+func TestFailureAtDeadlineDisconnectsOnce(t *testing.T) {
+	tracker, state := testTracker(5 * time.Second)
+	deadline := state.lastSeen.Add(5 * time.Second)
+	eventType, _ := tracker.applyProbe(probeFor(state, false, deadline.Add(-probeWindow), deadline))
 	if eventType != "device.disconnected" {
 		t.Fatalf("event = %q", eventType)
 	}
-	if eventType, _ = tracker.applyProbe(probeFor(state, false, started.Add(6*time.Second), started.Add(6*time.Second+probeWindow))); eventType != "" {
+	if eventType, _ = tracker.applyProbe(probeFor(state, false, deadline, deadline.Add(probeWindow))); eventType != "" {
 		t.Fatalf("repeated failure emitted %q", eventType)
 	}
 }
 
-func TestFiveSecondTimeoutHasBoundedDetectionLatency(t *testing.T) {
+func TestFiveSecondTimeoutIncludesFinalProbeWindow(t *testing.T) {
 	const timeout = 5 * time.Second
-	if typical := timeout + probeWindow; typical > 6*time.Second {
-		t.Fatalf("typical detection latency = %v", typical)
+	finalProbeStart := timeout - probeWindow
+	if finalProbeStart != 4*time.Second {
+		t.Fatalf("final probe starts at %v", finalProbeStart)
 	}
-	if maximum := time.Second + timeout + probeWindow; maximum > 7*time.Second {
-		t.Fatalf("maximum detection latency = %v", maximum)
+	if finalProbeStart+probeWindow != timeout {
+		t.Fatalf("final probe ends at %v", finalProbeStart+probeWindow)
+	}
+}
+
+func TestProbeSchedulingWaitsForFinalWindow(t *testing.T) {
+	tracker, state := testTracker(5 * time.Second)
+	if got := tracker.beginProbes(state.lastSeen.Add(3*time.Second), maxConcurrentProbes); len(got) != 0 {
+		t.Fatalf("early probe count = %d", len(got))
+	}
+	got := tracker.beginProbes(state.lastSeen.Add(4*time.Second), maxConcurrentProbes)
+	if len(got) != 1 {
+		t.Fatalf("final-window probe count = %d", len(got))
+	}
+	if want := state.lastSeen.Add(5 * time.Second); !got[0].deadline.Equal(want) {
+		t.Fatalf("deadline = %v, want %v", got[0].deadline, want)
 	}
 }
 
 func TestTrafficInvalidatesPendingProbe(t *testing.T) {
 	tracker, state := testTracker(5 * time.Second)
-	request := probeFor(state, false, time.Unix(101, 0), time.Unix(105, 0))
-	if eventType, _ := tracker.observeTraffic(state.mac, time.Unix(102, 0)); eventType != "" {
+	request := probeFor(state, false, state.lastSeen.Add(4*time.Second), state.lastSeen.Add(5*time.Second))
+	if eventType, _ := tracker.observeTraffic(state.mac, state.lastSeen.Add(4500*time.Millisecond)); eventType != "" {
 		t.Fatalf("traffic emitted %q", eventType)
 	}
 	if eventType, _ := tracker.applyProbe(request); eventType != "" {
 		t.Fatalf("stale probe emitted %q", eventType)
 	}
-	if !state.online || !state.failedSince.IsZero() {
+	if !state.online || !state.offlineDeadline.IsZero() {
 		t.Fatalf("unexpected state: %#v", state)
 	}
 }
 
-func TestTrafficTimelineSuppressesFalseDisconnectAndReconnect(t *testing.T) {
+func TestWeakNeighborDoesNotRefreshConfirmedPresence(t *testing.T) {
 	tracker, state := testTracker(5 * time.Second)
-	started := time.Unix(101, 0)
-	tracker.applyProbe(probeFor(state, false, started, started.Add(time.Second)))
-	pending := probeFor(state, false, started.Add(5*time.Second), started.Add(6*time.Second))
-	if eventType, _ := tracker.observeTraffic(state.mac, started.Add(5500*time.Millisecond)); eventType != "" {
-		t.Fatalf("recovery traffic emitted %q", eventType)
+	lastSeen := state.lastSeen
+	observed := &neighborObservation{ip: state.ip, mac: state.mac, active: true}
+	if eventType, _ := tracker.observeNeighbor(observed, lastSeen.Add(time.Second)); eventType != "" {
+		t.Fatalf("weak neighbor emitted %q", eventType)
 	}
-	if eventType, _ := tracker.applyProbe(pending); eventType != "" {
-		t.Fatalf("stale final probe emitted %q", eventType)
-	}
-	if !state.online || !state.failedSince.IsZero() {
-		t.Fatalf("unexpected final state: %#v", state)
+	if !state.lastSeen.Equal(lastSeen) {
+		t.Fatalf("weak neighbor refreshed lastSeen: %v", state.lastSeen)
 	}
 }
 
-func TestNeighborEvidenceInvalidatesPendingProbe(t *testing.T) {
+func TestConfirmedNeighborInvalidatesPendingProbe(t *testing.T) {
 	tracker, state := testTracker(5 * time.Second)
-	request := probeFor(state, false, time.Unix(101, 0), time.Unix(105, 0))
-	observation := &neighborObservation{ip: state.ip, mac: state.mac, active: true}
-	if eventType, _ := tracker.observeNeighbor(observation, time.Unix(102, 0)); eventType != "" {
-		t.Fatalf("neighbor evidence emitted %q", eventType)
+	request := probeFor(state, false, state.lastSeen.Add(4*time.Second), state.lastSeen.Add(5*time.Second))
+	observed := &neighborObservation{ip: state.ip, mac: state.mac, active: true, confirmed: true}
+	if eventType, _ := tracker.observeNeighbor(observed, state.lastSeen.Add(4500*time.Millisecond)); eventType != "" {
+		t.Fatalf("confirmed neighbor emitted %q", eventType)
 	}
 	if eventType, _ := tracker.applyProbe(request); eventType != "" {
 		t.Fatalf("stale probe emitted %q", eventType)
 	}
 }
 
-func TestProbeSuccessClearsFailure(t *testing.T) {
+func TestProbeSuccessClearsOfflineDeadline(t *testing.T) {
 	tracker, state := testTracker(5 * time.Second)
-	started := time.Unix(101, 0)
-	tracker.applyProbe(probeFor(state, false, started, started.Add(250*time.Millisecond)))
-	if eventType, _ := tracker.applyProbe(probeFor(state, true, started.Add(time.Second), started.Add(1250*time.Millisecond))); eventType != "" {
+	failedAt := state.lastSeen.Add(time.Second)
+	tracker.applyProbe(probeFor(state, false, failedAt, failedAt.Add(probeWindow)))
+	if eventType, _ := tracker.applyProbe(probeFor(state, true, failedAt.Add(time.Second), failedAt.Add(2*time.Second))); eventType != "" {
 		t.Fatalf("success emitted %q", eventType)
 	}
-	if !state.failedSince.IsZero() {
-		t.Fatalf("failedSince was not cleared: %v", state.failedSince)
+	if !state.offlineDeadline.IsZero() {
+		t.Fatalf("offline deadline was not cleared: %v", state.offlineDeadline)
 	}
 }
 
@@ -114,10 +133,10 @@ func TestStartupBaselineRequiresPositiveEvidence(t *testing.T) {
 	state := &deviceState{ip: net.IPv4(192, 0, 2, 10), mac: mac, online: true}
 	tracker := newPresenceTracker("br-lan", 5*time.Second, map[string]*deviceState{mac.String(): state})
 	checked := time.Unix(101, 0)
-	if eventType, _ := tracker.applyProbe(probeFor(state, false, checked, checked.Add(time.Second))); eventType != "" || state.verified {
+	if eventType, _ := tracker.applyProbe(probeFor(state, false, checked.Add(-probeWindow), checked)); eventType != "" || state.verified {
 		t.Fatalf("startup failure changed baseline: event=%q state=%#v", eventType, state)
 	}
-	if eventType, _ := tracker.applyProbe(probeFor(state, true, checked.Add(time.Second), checked.Add(2*time.Second))); eventType != "" || !state.verified {
+	if eventType, _ := tracker.applyProbe(probeFor(state, true, checked, checked.Add(probeWindow))); eventType != "" || !state.verified {
 		t.Fatalf("startup success failed baseline verification: event=%q state=%#v", eventType, state)
 	}
 }
@@ -127,33 +146,34 @@ func TestReconnectRequiresPositiveEvidence(t *testing.T) {
 	state.online = false
 	state.reconnectPending = true
 	checked := time.Unix(101, 0)
-	if eventType, _ := tracker.applyProbe(probeFor(state, false, checked, checked.Add(time.Second))); eventType != "" || state.online {
+	if eventType, _ := tracker.applyProbe(probeFor(state, false, checked.Add(-probeWindow), checked)); eventType != "" || state.online {
 		t.Fatalf("failed reconnect changed state: event=%q state=%#v", eventType, state)
 	}
 	state.reconnectPending = true
-	if eventType, _ := tracker.applyProbe(probeFor(state, true, checked.Add(time.Second), checked.Add(2*time.Second))); eventType != "device.connected" || !state.online {
+	if eventType, _ := tracker.applyProbe(probeFor(state, true, checked, checked.Add(probeWindow))); eventType != "device.connected" || !state.online {
 		t.Fatalf("successful reconnect: event=%q state=%#v", eventType, state)
 	}
 }
 
 func TestOnlyOneProbePerDevice(t *testing.T) {
 	tracker, state := testTracker(5 * time.Second)
-	first := tracker.beginProbes()
+	now := state.lastSeen.Add(4 * time.Second)
+	first := tracker.beginProbes(now, maxConcurrentProbes)
 	if got := len(first); got != 1 {
 		t.Fatalf("first probe count = %d", got)
 	}
-	if got := len(tracker.beginProbes()); got != 0 {
+	if got := len(tracker.beginProbes(now, maxConcurrentProbes)); got != 0 {
 		t.Fatalf("duplicate probe count = %d", got)
 	}
 	state.probePending = false
-	second := tracker.beginProbes()
+	second := tracker.beginProbes(now, maxConcurrentProbes)
 	if got := len(second); got != 1 {
 		t.Fatalf("next probe count = %d", got)
 	}
 	if first[0].probeID == second[0].probeID {
 		t.Fatal("probe ID was reused")
 	}
-	if eventType, _ := tracker.applyProbe(probeResult{probeRequest: first[0], online: false, started: time.Unix(101, 0), checked: time.Unix(105, 0)}); eventType != "" || !state.probePending {
+	if eventType, _ := tracker.applyProbe(probeResult{probeRequest: first[0], checked: state.lastSeen.Add(5 * time.Second)}); eventType != "" || !state.probePending {
 		t.Fatalf("stale probe changed current probe: event=%q state=%#v", eventType, state)
 	}
 }

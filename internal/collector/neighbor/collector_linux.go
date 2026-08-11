@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"sort"
 	"syscall"
 	"time"
 
@@ -45,7 +46,7 @@ type deviceState struct {
 	verified         bool
 	reconnectPending bool
 	lastSeen         time.Time
-	failedSince      time.Time
+	offlineDeadline  time.Time
 	generation       uint64
 	probePending     bool
 	probeID          uint64
@@ -57,6 +58,7 @@ type probeRequest struct {
 	mac        net.HardwareAddr
 	generation uint64
 	probeID    uint64
+	deadline   time.Time
 }
 
 type probeResult struct {
@@ -87,9 +89,19 @@ func (t *presenceTracker) observeNeighbor(observed *neighborObservation, now tim
 	state.ip = observed.ip
 	state.mac = observed.mac
 	state.data = neighborData(t.interfaceName, observed.ip, observed.mac)
-	if !state.online {
-		state.reconnectPending = true
+	if !observed.confirmed {
 		return "", state
+	}
+	if !state.verified {
+		state.verified = true
+		t.markSeen(state, now)
+		return "", state
+	}
+	if !state.online {
+		state.online = true
+		state.reconnectPending = false
+		t.markSeen(state, now)
+		return "device.connected", state
 	}
 	t.markSeen(state, now)
 	return "", state
@@ -115,21 +127,36 @@ func (t *presenceTracker) observeTraffic(mac net.HardwareAddr, now time.Time) (s
 	return "", state
 }
 
-func (t *presenceTracker) beginProbes() []probeRequest {
+func (t *presenceTracker) beginProbes(now time.Time, limit int) []probeRequest {
+	if limit <= 0 {
+		return nil
+	}
 	requests := make([]probeRequest, 0, len(t.states))
 	for key, state := range t.states {
 		if state.probePending || (!state.online && !state.reconnectPending) {
 			continue
 		}
-		state.probePending = true
-		state.probeID++
+		deadline := state.lastSeen.Add(t.offlineTimeout)
+		if deadline.After(now.Add(probeWindow)) {
+			continue
+		}
 		requests = append(requests, probeRequest{
 			key:        key,
 			ip:         append(net.IP(nil), state.ip...),
 			mac:        append(net.HardwareAddr(nil), state.mac...),
 			generation: state.generation,
-			probeID:    state.probeID,
+			deadline:   deadline,
 		})
+	}
+	sort.Slice(requests, func(i, j int) bool { return requests[i].deadline.Before(requests[j].deadline) })
+	if len(requests) > limit {
+		requests = requests[:limit]
+	}
+	for index := range requests {
+		state := t.states[requests[index].key]
+		state.probePending = true
+		state.probeID++
+		requests[index].probeID = state.probeID
 	}
 	return requests
 }
@@ -166,15 +193,15 @@ func (t *presenceTracker) applyProbe(result probeResult) (string, *deviceState) 
 		state.reconnectPending = false
 		return "", state
 	}
-	if state.failedSince.IsZero() {
-		state.failedSince = result.started
+	if state.offlineDeadline.IsZero() {
+		state.offlineDeadline = result.deadline
 	}
-	if result.checked.Sub(state.failedSince) < t.offlineTimeout {
+	if result.checked.Before(state.offlineDeadline) {
 		return "", state
 	}
 	state.online = false
 	state.reconnectPending = false
-	state.failedSince = time.Time{}
+	state.offlineDeadline = time.Time{}
 	state.generation++
 	return "device.disconnected", state
 }
@@ -183,7 +210,7 @@ func (t *presenceTracker) markSeen(state *deviceState, now time.Time) {
 	if now.After(state.lastSeen) {
 		state.lastSeen = now
 	}
-	state.failedSince = time.Time{}
+	state.offlineDeadline = time.Time{}
 	state.generation++
 	state.probeID++
 	state.probePending = false
@@ -281,8 +308,8 @@ func (c *Collector) Start(ctx context.Context, emitter collector.Emitter) error 
 					return err
 				}
 			case <-ticker.C:
-				if c.detectOffline && activeProbes == 0 {
-					for _, request := range tracker.beginProbes() {
+				if c.detectOffline {
+					for _, request := range tracker.beginProbes(time.Now(), maxConcurrentProbes-activeProbes) {
 						request := request
 						activeProbes++
 						go runProbe(ctx, device, sourceIP, request, probeSlots, probeResults)
@@ -341,7 +368,11 @@ func runProbe(ctx context.Context, device *net.Interface, sourceIP net.IP, reque
 		return
 	}
 	started := time.Now()
-	online := probeARPAttempts(device, sourceIP, request.ip, request.mac, started.Add(probeWindow), probeAttempts, probeInterval)
+	deadline := request.deadline
+	if !deadline.After(started) {
+		deadline = started.Add(time.Microsecond)
+	}
+	online := probeARPAttempts(device, sourceIP, request.ip, request.mac, deadline, probeAttempts, probeInterval)
 	checked := time.Now()
 	<-slots
 	select {
