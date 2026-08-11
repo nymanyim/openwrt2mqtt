@@ -16,9 +16,10 @@ import (
 const neighborHeaderSize = 12
 
 type neighborObservation struct {
-	ip     net.IP
-	mac    net.HardwareAddr
-	active bool
+	ip        net.IP
+	mac       net.HardwareAddr
+	active    bool
+	confirmed bool
 }
 
 func parseNeighbor(interfaceIndex int, message syscall.NetlinkMessage) *neighborObservation {
@@ -29,7 +30,10 @@ func parseNeighbor(interfaceIndex int, message syscall.NetlinkMessage) *neighbor
 		return nil
 	}
 	state := nativeUint16(message.Data[8:10])
-	o := &neighborObservation{active: message.Header.Type == rtmNewNeighbor && state&(nudReachable|nudStale|nudDelay|nudProbe|nudNoARP|nudPermanent) != 0}
+	o := &neighborObservation{
+		active:    message.Header.Type == rtmNewNeighbor && state&(nudReachable|nudStale|nudDelay|nudProbe|nudNoARP|nudPermanent) != 0,
+		confirmed: message.Header.Type == rtmNewNeighbor && state&(nudReachable|nudNoARP|nudPermanent) != 0,
+	}
 	for offset := neighborHeaderSize; offset+syscall.SizeofRtAttr <= len(message.Data); {
 		length := int(binary.NativeEndian.Uint16(message.Data[offset : offset+2]))
 		typ := binary.NativeEndian.Uint16(message.Data[offset+2 : offset+4])

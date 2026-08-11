@@ -275,17 +275,9 @@ return view.extend({
 		o = bindOption(s.taboption('quick', form.Value, '_username', _('Username')), 'mqtt', 'username', 'mqtt');
 		o.optional = true;
 
-		o = s.taboption('quick', form.Value, '_password', _('Password'));
+		o = bindOption(s.taboption('quick', form.Value, '_password', _('Password')), 'mqtt', 'password', 'mqtt');
 		o.password = true;
 		o.optional = true;
-		o.load = function() { return ''; };
-		o.write = function(sectionId, value) {
-			if (value) {
-				ensureSection('mqtt', 'mqtt');
-				uci.set('openwrt2mqtt', 'mqtt', 'password', value);
-			}
-		};
-		o.remove = function() {};
 
 		o = s.taboption('quick', form.Button, '_test_mqtt', '');
 		o.inputtitle = _('Test connection');
@@ -332,13 +324,13 @@ return view.extend({
 		o = bindSecondsOption(s.taboption('events', form.Value, '_offline_timeout', _('Offline time (seconds)')),
 			'network_device_disconnected', 'offline_timeout', 'event');
 		o.default = '5';
-		o.datatype = 'and(uinteger,min(3))';
+		o.datatype = 'and(uinteger,min(5))';
 		o.rmempty = false;
 		o.retain = true;
 		o.depends('_device_disconnected_enabled', '1');
 		o.validate = function(sectionId, value) {
-			return /^[1-9][0-9]*$/.test(value) && Number(value) >= 3
-				? true : _('Offline time must be an integer of at least 3 seconds.');
+			return /^[1-9][0-9]*$/.test(value) && Number(value) >= 5
+				? true : _('Offline time must be an integer of at least 5 seconds.');
 		};
 
 		o = s.taboption('advanced', form.ListValue, 'log_level', _('Log level'));

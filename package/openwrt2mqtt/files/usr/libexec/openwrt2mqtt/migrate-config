@@ -21,7 +21,7 @@ if [ -z "$offline_timeout" ]; then
 	changed=1
 elif printf '%s\n' "$offline_timeout" | grep -Eq '^([0-9]+([.][0-9]+)?(ns|us|µs|μs|ms|s|m|h))+$' &&
 	! is_minimum_offline_duration "$offline_timeout"; then
-	uci -q set openwrt2mqtt.network_device_disconnected.offline_timeout='3s' || exit 1
+	uci -q set openwrt2mqtt.network_device_disconnected.offline_timeout='5s' || exit 1
 	changed=1
 fi
 

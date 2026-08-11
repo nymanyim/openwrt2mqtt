@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"sort"
 	"syscall"
 	"time"
 
@@ -15,28 +16,28 @@ import (
 )
 
 const (
-	netlinkRoute         = 0
-	rtmNewNeighbor       = 28
-	rtmDelNeighbor       = 29
-	rtmGetNeighbor       = 30
-	rtmGroupNeighbor     = 4
-	nudIncomplete        = 0x01
-	nudReachable         = 0x02
-	nudStale             = 0x04
-	nudDelay             = 0x08
-	nudProbe             = 0x10
-	nudFailed            = 0x20
-	nudNoARP             = 0x40
-	nudPermanent         = 0x80
-	ndaDestination       = 1
-	ndaLinkAddress       = 2
-	netlinkBufferSize    = 64 * 1024
-	maxConcurrentProbes  = 8
-	probeTimeout         = 250 * time.Millisecond
-	confirmationAttempts = 3
-	confirmationTimeout  = 400 * time.Millisecond
-	confirmationInterval = 100 * time.Millisecond
-	confirmationWindow   = confirmationTimeout + (confirmationAttempts-1)*confirmationInterval
+	netlinkRoute        = 0
+	rtmNewNeighbor      = 28
+	rtmDelNeighbor      = 29
+	rtmGetNeighbor      = 30
+	rtmGroupNeighbor    = 4
+	nudIncomplete       = 0x01
+	nudReachable        = 0x02
+	nudStale            = 0x04
+	nudDelay            = 0x08
+	nudProbe            = 0x10
+	nudFailed           = 0x20
+	nudNoARP            = 0x40
+	nudPermanent        = 0x80
+	ndaDestination      = 1
+	ndaLinkAddress      = 2
+	netlinkBufferSize   = 64 * 1024
+	maxConcurrentProbes = 8
+	probeAttempts       = 5
+	probeWindow         = 2 * time.Second
+	probeSettleWindow   = 500 * time.Millisecond
+	probeInterval       = 150 * time.Millisecond
+	probePollInterval   = 250 * time.Millisecond
 )
 
 type deviceState struct {
@@ -46,19 +47,204 @@ type deviceState struct {
 	online           bool
 	verified         bool
 	reconnectPending bool
-	failedSince      time.Time
+	lastSeen         time.Time
+	offlineDeadline  time.Time
+	disconnectedAt   time.Time
+	generation       uint64
+	probePending     bool
+	probeID          uint64
 }
+
+type probeRequest struct {
+	key        string
+	ip         net.IP
+	mac        net.HardwareAddr
+	generation uint64
+	probeID    uint64
+	deadline   time.Time
+}
+
+type probeResult struct {
+	probeRequest
+	online  bool
+	started time.Time
+	checked time.Time
+}
+
+type presenceTracker struct {
+	interfaceName  string
+	offlineTimeout time.Duration
+	states         map[string]*deviceState
+}
+
+func newPresenceTracker(interfaceName string, offlineTimeout time.Duration, states map[string]*deviceState) *presenceTracker {
+	return &presenceTracker{interfaceName: interfaceName, offlineTimeout: offlineTimeout, states: states}
+}
+
+func (t *presenceTracker) observeNeighbor(observed *neighborObservation, now time.Time) (string, *deviceState) {
+	key := observed.mac.String()
+	state := t.states[key]
+	if state == nil {
+		if !observed.confirmed {
+			return "", nil
+		}
+		state = newDeviceState(t.interfaceName, observed, true, now)
+		t.states[key] = state
+		return "device.connected", state
+	}
+	state.ip = observed.ip
+	state.mac = observed.mac
+	state.data = neighborData(t.interfaceName, observed.ip, observed.mac)
+	if !observed.confirmed {
+		return "", state
+	}
+	if !state.verified {
+		state.verified = true
+		if !state.online {
+			state.online = true
+			state.reconnectPending = false
+			t.markSeen(state, now)
+			return "device.connected", state
+		}
+		t.markSeen(state, now)
+		return "", state
+	}
+	if !state.online {
+		state.online = true
+		state.reconnectPending = false
+		t.markSeen(state, now)
+		return "device.connected", state
+	}
+	t.markSeen(state, now)
+	return "", state
+}
+
+func (t *presenceTracker) observeTraffic(mac net.HardwareAddr, observedAt time.Time) (string, *deviceState) {
+	state := t.states[mac.String()]
+	if state == nil {
+		return "", nil
+	}
+	if observedAt.Before(state.lastSeen) || (!state.online && !observedAt.After(state.disconnectedAt)) {
+		return "", state
+	}
+	if !state.verified {
+		state.verified = true
+		t.markSeen(state, observedAt)
+		return "", state
+	}
+	if !state.online {
+		state.online = true
+		state.reconnectPending = false
+		t.markSeen(state, observedAt)
+		return "device.connected", state
+	}
+	t.markSeen(state, observedAt)
+	return "", state
+}
+
+func (t *presenceTracker) beginProbes(now time.Time, limit int) []probeRequest {
+	if limit <= 0 {
+		return nil
+	}
+	requests := make([]probeRequest, 0, len(t.states))
+	for key, state := range t.states {
+		if state.probePending || (!state.online && !state.reconnectPending) {
+			continue
+		}
+		deadline := state.lastSeen.Add(t.offlineTimeout)
+		if deadline.After(now.Add(probeWindow)) {
+			continue
+		}
+		requests = append(requests, probeRequest{
+			key:        key,
+			ip:         append(net.IP(nil), state.ip...),
+			mac:        append(net.HardwareAddr(nil), state.mac...),
+			generation: state.generation,
+			deadline:   deadline,
+		})
+	}
+	sort.Slice(requests, func(i, j int) bool { return requests[i].deadline.Before(requests[j].deadline) })
+	if len(requests) > limit {
+		requests = requests[:limit]
+	}
+	for index := range requests {
+		state := t.states[requests[index].key]
+		state.probePending = true
+		state.probeID++
+		requests[index].probeID = state.probeID
+	}
+	return requests
+}
+
+func (t *presenceTracker) applyProbe(result probeResult) (string, *deviceState) {
+	state := t.states[result.key]
+	if state == nil {
+		return "", nil
+	}
+	if state.probeID == result.probeID {
+		state.probePending = false
+	}
+	if state.generation != result.generation || state.probeID != result.probeID || !state.ip.Equal(result.ip) || state.mac.String() != result.mac.String() {
+		return "", state
+	}
+	if !state.verified {
+		if result.online {
+			state.verified = true
+			t.markSeen(state, result.checked)
+		}
+		return "", state
+	}
+	if result.online {
+		if !state.online {
+			state.online = true
+			state.reconnectPending = false
+			t.markSeen(state, result.checked)
+			return "device.connected", state
+		}
+		t.markSeen(state, result.checked)
+		return "", state
+	}
+	if !state.online {
+		state.reconnectPending = false
+		return "", state
+	}
+	if state.offlineDeadline.IsZero() {
+		state.offlineDeadline = result.deadline
+	}
+	if result.checked.Before(state.offlineDeadline) {
+		return "", state
+	}
+	state.online = false
+	state.reconnectPending = false
+	state.offlineDeadline = time.Time{}
+	state.disconnectedAt = result.checked
+	state.generation++
+	return "device.disconnected", state
+}
+
+func (t *presenceTracker) markSeen(state *deviceState, now time.Time) {
+	if now.After(state.lastSeen) {
+		state.lastSeen = now
+	}
+	state.offlineDeadline = time.Time{}
+	state.generation++
+	state.probeID++
+	state.probePending = false
+}
+
 type Collector struct {
 	interfaceName, routerID string
 	offlineTimeout          time.Duration
 	detectOffline           bool
-	probeInterval           time.Duration
+	pollInterval            time.Duration
 }
 
 func NewCollector(interfaceName, routerID string, offlineTimeout time.Duration, detectOffline bool) *Collector {
-	return &Collector{interfaceName: interfaceName, routerID: routerID, offlineTimeout: offlineTimeout, detectOffline: detectOffline, probeInterval: time.Second}
+	return &Collector{interfaceName: interfaceName, routerID: routerID, offlineTimeout: offlineTimeout, detectOffline: detectOffline, pollInterval: probePollInterval}
 }
+
 func (c *Collector) Name() string { return "neighbor" }
+
 func (c *Collector) Start(ctx context.Context, emitter collector.Emitter) error {
 	if c.interfaceName == "" {
 		return errors.New("neighbor interface must not be empty")
@@ -73,9 +259,12 @@ func (c *Collector) Start(ctx context.Context, emitter collector.Emitter) error 
 	if err != nil {
 		return fmt.Errorf("find neighbor interface %q: %w", c.interfaceName, err)
 	}
-	sourceIP, err := interfaceIPv4(device)
-	if err != nil {
-		return fmt.Errorf("find neighbor interface IPv4: %w", err)
+	var sourceIP net.IP
+	if c.detectOffline {
+		sourceIP, err = interfaceIPv4(device)
+		if err != nil {
+			return fmt.Errorf("find neighbor interface IPv4: %w", err)
+		}
 	}
 	fd, err := syscall.Socket(syscall.AF_NETLINK, syscall.SOCK_RAW, netlinkRoute)
 	if err != nil {
@@ -92,16 +281,98 @@ func (c *Collector) Start(ctx context.Context, emitter collector.Emitter) error 
 	if err = c.loadSnapshot(fd, device.Index, states); err != nil {
 		return err
 	}
+	tracker := newPresenceTracker(c.interfaceName, c.offlineTimeout, states)
+	traffic := make(chan trafficObservation, 256)
+	var trafficErrors <-chan error
+	if c.detectOffline {
+		errors := make(chan error, 1)
+		trafficErrors = errors
+		go func() { errors <- observeTraffic(ctx, device, traffic) }()
+	}
+	probeResults := make(chan probeResult, maxConcurrentProbes*2)
+	probeSlots := make(chan struct{}, maxConcurrentProbes)
+	activeProbes := 0
+	ticker := time.NewTicker(c.pollInterval)
+	defer ticker.Stop()
 	buffer := make([]byte, netlinkBufferSize)
-	nextProbe := time.Now().Add(c.probeInterval)
+
+	emitEvent := func(eventType string, state *deviceState, now time.Time) error {
+		if eventType == "" || state == nil {
+			return nil
+		}
+		return c.emit(ctx, emitter, state, eventType, now)
+	}
+	processTraffic := func(observed trafficObservation) error {
+		eventType, state := tracker.observeTraffic(observed.mac, observed.observedAt)
+		return emitEvent(eventType, state, time.Now())
+	}
+	processAsync := func() error {
+		for {
+			select {
+			case <-ctx.Done():
+				return ctx.Err()
+			case err := <-trafficErrors:
+				if err != nil && ctx.Err() == nil {
+					return fmt.Errorf("observe neighbor traffic: %w", err)
+				}
+				trafficErrors = nil
+			case observed := <-traffic:
+				if err := processTraffic(observed); err != nil {
+					return err
+				}
+			case result := <-probeResults:
+				activeProbes--
+				draining := true
+				for draining {
+					select {
+					case observed := <-traffic:
+						if err := processTraffic(observed); err != nil {
+							return err
+						}
+					default:
+						draining = false
+					}
+				}
+				eventType, state := tracker.applyProbe(result)
+				if err := emitEvent(eventType, state, time.Now()); err != nil {
+					return err
+				}
+			case <-ticker.C:
+				if c.detectOffline {
+					for _, request := range tracker.beginProbes(time.Now(), maxConcurrentProbes-activeProbes) {
+						request := request
+						activeProbes++
+						go runProbe(ctx, device, sourceIP, request, probeSlots, probeResults)
+					}
+				}
+			default:
+				return nil
+			}
+		}
+	}
+
 	for {
+		if err := processAsync(); err != nil {
+			if errors.Is(err, context.Canceled) {
+				return nil
+			}
+			return err
+		}
+
 		length, _, readErr := syscall.Recvfrom(fd, buffer, 0)
 		if readErr == nil {
 			messages, parseErr := syscall.ParseNetlinkMessage(buffer[:length])
 			if parseErr == nil {
 				for _, message := range messages {
-					if err := c.handleMessage(ctx, emitter, device.Index, states, message); err != nil {
-						return err
+					observed := parseNeighbor(device.Index, message)
+					if observed == nil || !observed.active {
+						continue
+					}
+					eventType, state := tracker.observeNeighbor(observed, time.Now())
+					if eventType != "" {
+						if err := c.emit(ctx, emitter, state, eventType, time.Now()); err != nil {
+							return err
+						}
 					}
 				}
 			}
@@ -110,15 +381,54 @@ func (c *Collector) Start(ctx context.Context, emitter collector.Emitter) error 
 		} else if !errors.Is(readErr, syscall.EINTR) && !errors.Is(readErr, syscall.EAGAIN) && !errors.Is(readErr, syscall.EWOULDBLOCK) {
 			return readErr
 		}
-		if c.detectOffline && !time.Now().Before(nextProbe) {
-			if err := c.probeDevices(ctx, emitter, device, sourceIP, states); err != nil {
-				return err
+
+		if err := processAsync(); err != nil {
+			if errors.Is(err, context.Canceled) {
+				return nil
 			}
-			now := time.Now()
-			for !nextProbe.After(now) {
-				nextProbe = nextProbe.Add(c.probeInterval)
+			return err
+		}
+	}
+}
+
+func runProbe(ctx context.Context, device *net.Interface, sourceIP net.IP, request probeRequest, slots chan struct{}, results chan<- probeResult) {
+	select {
+	case slots <- struct{}{}:
+	case <-ctx.Done():
+		return
+	}
+	started := time.Now()
+	deadline := request.deadline
+	if !deadline.After(started) {
+		deadline = started.Add(time.Microsecond)
+	}
+	probeDeadline := deadline.Add(-probeSettleWindow)
+	if !probeDeadline.After(started) {
+		probeDeadline = deadline
+	}
+	online := probeARPAttempts(device, sourceIP, request.ip, request.mac, probeDeadline, probeAttempts, probeInterval)
+	if !online {
+		if wait := time.Until(deadline); wait > 0 {
+			timer := time.NewTimer(wait)
+			select {
+			case <-timer.C:
+			case <-ctx.Done():
+				if !timer.Stop() {
+					select {
+					case <-timer.C:
+					default:
+					}
+				}
+				<-slots
+				return
 			}
 		}
+	}
+	checked := time.Now()
+	<-slots
+	select {
+	case results <- probeResult{probeRequest: request, online: online, started: started, checked: checked}:
+	case <-ctx.Done():
 	}
 }
 
@@ -149,195 +459,12 @@ func (c *Collector) loadSnapshot(fd, interfaceIndex int, states map[string]*devi
 			}
 			observed := parseNeighbor(interfaceIndex, message)
 			if observed != nil && observed.active {
-				states[observed.mac.String()] = newDeviceState(c.interfaceName, observed, false)
+				states[observed.mac.String()] = newDeviceState(c.interfaceName, observed, false, time.Now())
 			}
 		}
 		if done {
 			return nil
 		}
-	}
-}
-func (c *Collector) handleMessage(ctx context.Context, emitter collector.Emitter, interfaceIndex int, states map[string]*deviceState, message syscall.NetlinkMessage) error {
-	observed := parseNeighbor(interfaceIndex, message)
-	if observed == nil || !observed.active {
-		return nil
-	}
-	key := observed.mac.String()
-	current := states[key]
-	now := time.Now()
-	if current == nil {
-		current = newDeviceState(c.interfaceName, observed, true)
-		states[key] = current
-		return c.emit(ctx, emitter, current, "device.connected", now)
-	}
-	current.ip = observed.ip
-	current.mac = observed.mac
-	current.data = neighborData(c.interfaceName, observed.ip, observed.mac)
-	if !current.online {
-		current.reconnectPending = true
-		return nil
-	}
-	current.failedSince = time.Time{}
-	return nil
-}
-func (c *Collector) probeDevices(ctx context.Context, emitter collector.Emitter, device *net.Interface, sourceIP net.IP, states map[string]*deviceState) error {
-	type probeResult struct {
-		state   *deviceState
-		online  bool
-		started time.Time
-		checked time.Time
-	}
-	type confirmationResult struct {
-		state  *deviceState
-		online bool
-	}
-
-	results := make(chan probeResult, len(states))
-	probeSemaphore := make(chan struct{}, maxConcurrentProbes)
-	pending := 0
-	for _, state := range states {
-		if !state.online && !state.reconnectPending {
-			continue
-		}
-		pending++
-		go func(state *deviceState) {
-			probeSemaphore <- struct{}{}
-			started := time.Now()
-			online := probeARP(device, sourceIP, state.ip, state.mac, probeTimeout)
-			checked := time.Now()
-			<-probeSemaphore
-			results <- probeResult{state: state, online: online, started: started, checked: checked}
-		}(state)
-	}
-	confirmationResults := make(chan confirmationResult, len(states))
-	confirmationSemaphore := make(chan struct{}, maxConcurrentProbes)
-	confirmationPending := 0
-	sendConfirmationResult := func(result confirmationResult) {
-		select {
-		case confirmationResults <- result:
-		case <-ctx.Done():
-		}
-	}
-	pendingProbes := pending
-	for pendingProbes > 0 || confirmationPending > 0 {
-		select {
-		case <-ctx.Done():
-			return nil
-		case result := <-results:
-			pendingProbes--
-			eventType, confirmOffline := applyProbeResult(result.state, result.online, result.started, result.checked, c.probeInterval, c.offlineTimeout)
-			if confirmOffline {
-				deadline := result.state.failedSince.Add(c.offlineTimeout)
-				confirmationPending++
-				go func(state *deviceState, deadline time.Time) {
-					select {
-					case confirmationSemaphore <- struct{}{}:
-					case <-ctx.Done():
-						return
-					}
-					online := confirmARP(device, sourceIP, state.ip, state.mac, deadline)
-					<-confirmationSemaphore
-					if online {
-						sendConfirmationResult(confirmationResult{state: state, online: true})
-						return
-					}
-					if waitUntil(ctx, deadline) {
-						sendConfirmationResult(confirmationResult{state: state})
-					}
-				}(result.state, deadline)
-				continue
-			}
-			if eventType == "" {
-				continue
-			}
-			if err := c.emit(ctx, emitter, result.state, eventType, time.Now()); err != nil {
-				return err
-			}
-		case result := <-confirmationResults:
-			confirmationPending--
-			if ctx.Err() != nil {
-				return nil
-			}
-			if result.online {
-				result.state.failedSince = time.Time{}
-				continue
-			}
-			result.state.online = false
-			result.state.failedSince = time.Time{}
-			if err := c.emit(ctx, emitter, result.state, "device.disconnected", time.Now()); err != nil {
-				return err
-			}
-		}
-	}
-
-	return nil
-}
-
-func applyProbeResult(state *deviceState, online bool, started, checked time.Time, probeInterval, offlineTimeout time.Duration) (string, bool) {
-	if !state.verified {
-		state.failedSince = time.Time{}
-		if online {
-			state.verified = true
-		}
-		return "", false
-	}
-	if online {
-		state.failedSince = time.Time{}
-		if !state.online && state.reconnectPending {
-			state.online = true
-			state.reconnectPending = false
-			return "device.connected", false
-		}
-		return "", false
-	}
-	if !state.online {
-		state.reconnectPending = false
-		return "", false
-	}
-	if state.failedSince.IsZero() {
-		state.failedSince = started.Add(-probeInterval)
-	}
-	deadline := state.failedSince.Add(offlineTimeout)
-	confirmAt := deadline.Add(-confirmationLead(probeInterval))
-	if confirmAt.Before(state.failedSince) {
-		confirmAt = state.failedSince
-	}
-	return "", !checked.Before(confirmAt)
-}
-
-func confirmationLead(probeInterval time.Duration) time.Duration {
-	// Start one poll early so a one-second probe cadence cannot skip the confirmation window.
-	return probeInterval + confirmationWindow
-}
-
-func confirmARP(device *net.Interface, sourceIP, targetIP net.IP, targetMAC net.HardwareAddr, deadline time.Time) bool {
-	interval := confirmationProbeInterval(time.Until(deadline))
-	return probeARPAttempts(device, sourceIP, targetIP, targetMAC, deadline, confirmationAttempts, interval)
-}
-
-func confirmationProbeInterval(remaining time.Duration) time.Duration {
-	if confirmationAttempts <= 1 || remaining <= confirmationTimeout {
-		return confirmationInterval
-	}
-	interval := (remaining - confirmationTimeout) / time.Duration(confirmationAttempts-1)
-	if interval < confirmationInterval {
-		return confirmationInterval
-	}
-	return interval
-}
-
-func waitUntil(ctx context.Context, deadline time.Time) bool {
-	remaining := time.Until(deadline)
-	if remaining <= 0 {
-		return true
-	}
-	timer := time.NewTimer(remaining)
-	defer timer.Stop()
-	select {
-	case <-ctx.Done():
-		return false
-	case <-timer.C:
-		return true
 	}
 }
 
@@ -347,7 +474,16 @@ func (c *Collector) emit(ctx context.Context, emitter collector.Emitter, state *
 	}
 	return nil
 }
-func newDeviceState(interfaceName string, observed *neighborObservation, verified bool) *deviceState {
-	return &deviceState{ip: observed.ip, mac: observed.mac, data: neighborData(interfaceName, observed.ip, observed.mac), online: true, verified: verified}
+
+func newDeviceState(interfaceName string, observed *neighborObservation, verified bool, now time.Time) *deviceState {
+	return &deviceState{
+		ip:       observed.ip,
+		mac:      observed.mac,
+		data:     neighborData(interfaceName, observed.ip, observed.mac),
+		online:   true,
+		verified: verified,
+		lastSeen: now,
+	}
 }
+
 func nativeUint16(value []byte) uint16 { return binary.NativeEndian.Uint16(value) }

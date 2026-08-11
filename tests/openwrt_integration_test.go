@@ -107,7 +107,7 @@ func TestConfigMigrationAddsMissingDisconnectedSettings(t *testing.T) {
 }
 
 func TestConfigMigrationPreservesDisconnectedSettings(t *testing.T) {
-	for _, value := range []string{"3s", "3000ms", "0.05m", "30s"} {
+	for _, value := range []string{"5s", "5000ms", "0.0833333334m", "30s"} {
 		t.Run(value, func(t *testing.T) {
 			state := map[string]string{
 				"openwrt2mqtt.network_device_disconnected":                 "event",
@@ -127,7 +127,7 @@ func TestConfigMigrationPreservesDisconnectedSettings(t *testing.T) {
 }
 
 func TestConfigMigrationRaisesOfflineTimeoutToMinimum(t *testing.T) {
-	for _, value := range []string{"1s", "2s", "2999ms"} {
+	for _, value := range []string{"1s", "3s", "4999ms"} {
 		t.Run(value, func(t *testing.T) {
 			state := map[string]string{
 				"openwrt2mqtt.network_device_disconnected":                 "event",
@@ -138,8 +138,8 @@ func TestConfigMigrationRaisesOfflineTimeoutToMinimum(t *testing.T) {
 			if commits := runMigrationHarness(t, state); commits != 1 {
 				t.Fatalf("commit count = %d, want 1", commits)
 			}
-			if got := state["openwrt2mqtt.network_device_disconnected.offline_timeout"]; got != "3s" {
-				t.Fatalf("offline timeout = %q, want 3s", got)
+			if got := state["openwrt2mqtt.network_device_disconnected.offline_timeout"]; got != "5s" {
+				t.Fatalf("offline timeout = %q, want 5s", got)
 			}
 		})
 	}
@@ -204,7 +204,7 @@ func TestInitScriptAcceptsGoDurations(t *testing.T) {
 }
 
 func TestInitScriptAcceptsMinimumOfflineTimeout(t *testing.T) {
-	for _, value := range []string{"3s", "3000ms", "0.05m"} {
+	for _, value := range []string{"5s", "5000ms", "0.0833333334m"} {
 		t.Run(value, func(t *testing.T) {
 			output, err := runInitHarness(t, map[string]string{"CFG_OFFLINE_TIMEOUT": value})
 			if err != nil {
@@ -218,13 +218,13 @@ func TestInitScriptAcceptsMinimumOfflineTimeout(t *testing.T) {
 }
 
 func TestInitScriptRejectsOfflineTimeoutBelowMinimum(t *testing.T) {
-	for _, value := range []string{"1s", "2s", "2999ms"} {
+	for _, value := range []string{"1s", "3s", "4999ms"} {
 		t.Run(value, func(t *testing.T) {
 			output, err := runInitHarness(t, map[string]string{"CFG_OFFLINE_TIMEOUT": value})
 			if err == nil {
 				t.Fatalf("start_service accepted offline timeout %q:\n%s", value, output)
 			}
-			if !strings.Contains(output, "offline timeout must be at least 3s") {
+			if !strings.Contains(output, "offline timeout must be at least 5s") {
 				t.Fatalf("unexpected validation output:\n%s", output)
 			}
 			if strings.Contains(output, "PARAM <command>") {

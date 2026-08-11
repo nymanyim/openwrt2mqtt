@@ -77,9 +77,15 @@ msgstr "请输入主机和端口；未指定协议时会自动添加 tcp://。"
 
 msgid "Username"
 msgstr "用户名"
-
 msgid "Password"
 msgstr "密码"
+
+msgid "Show password"
+msgstr "显示密码"
+
+msgid "Hide password"
+msgstr "隐藏密码"
+
 
 msgid "Test connection"
 msgstr "测试连接"
@@ -117,8 +123,8 @@ msgstr "设备持续不可达达到设定离线时间后发布断开事件。"
 msgid "Offline time (seconds)"
 msgstr "离线时间（秒）"
 
-msgid "Offline time must be an integer of at least 3 seconds."
-msgstr "离线时间必须为不小于 3 秒的整数。"
+msgid "Offline time must be an integer of at least 5 seconds."
+msgstr "离线时间必须为不小于 5 秒的整数。"
 
 msgid "Capture interface"
 msgstr "监听接口"
