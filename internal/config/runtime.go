@@ -13,8 +13,8 @@ const (
 	defaultMQTTBroker     = "127.0.0.1:1883"
 	defaultTopicPrefix    = "openwrt2mqtt"
 	defaultMQTTTimeout    = 10 * time.Second
-	defaultOfflineTimeout = 5 * time.Second
-	minimumOfflineTimeout = 5 * time.Second
+	defaultOfflineTimeout = 8 * time.Second
+	minimumOfflineTimeout = 8 * time.Second
 	defaultBusCapacity    = 128
 )
 

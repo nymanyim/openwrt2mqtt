@@ -26,7 +26,7 @@ config_get() {
 		main.interface) value="${CFG_INTERFACE-br-lan}" ;;
 		main.log_level) value="${CFG_LOG_LEVEL-info}" ;;
 		main.bus_capacity) value="${CFG_BUS_CAPACITY-128}" ;;
-		network_device_disconnected.offline_timeout) value="${CFG_OFFLINE_TIMEOUT-5s}" ;;
+		network_device_disconnected.offline_timeout) value="${CFG_OFFLINE_TIMEOUT-8s}" ;;
 		mqtt.broker) value="${CFG_BROKER-127.0.0.1:1883}" ;;
 		mqtt.client_id) value="${CFG_CLIENT_ID-client-a}" ;;
 		mqtt.username) value="${CFG_USERNAME-user-a}" ;;
@@ -71,7 +71,7 @@ func TestUCIConfigDefaultsDisabled(t *testing.T) {
 		"option bus_capacity '128'",
 		"config event 'network_device_connected'",
 		"config event 'network_device_disconnected'",
-		"option offline_timeout '5s'",
+		"option offline_timeout '8s'",
 		"option enabled '1'",
 		"option broker '127.0.0.1:1883'",
 		"option topic 'openwrt2mqtt'",
@@ -94,8 +94,8 @@ func TestConfigMigrationAddsMissingDisconnectedSettings(t *testing.T) {
 	if got := state["openwrt2mqtt.network_device_disconnected.enabled"]; got != "1" {
 		t.Fatalf("enabled = %q, want 1", got)
 	}
-	if got := state["openwrt2mqtt.network_device_disconnected.offline_timeout"]; got != "5s" {
-		t.Fatalf("offline timeout = %q, want 5s", got)
+	if got := state["openwrt2mqtt.network_device_disconnected.offline_timeout"]; got != "8s" {
+		t.Fatalf("offline timeout = %q, want 8s", got)
 	}
 	if commits != 1 {
 		t.Fatalf("commit count = %d, want 1", commits)
@@ -107,7 +107,7 @@ func TestConfigMigrationAddsMissingDisconnectedSettings(t *testing.T) {
 }
 
 func TestConfigMigrationPreservesDisconnectedSettings(t *testing.T) {
-	for _, value := range []string{"5s", "5000ms", "0.0833333334m", "30s"} {
+	for _, value := range []string{"8s", "8000ms", "0.1333333334m", "10s", "30s"} {
 		t.Run(value, func(t *testing.T) {
 			state := map[string]string{
 				"openwrt2mqtt.network_device_disconnected":                 "event",
@@ -127,7 +127,7 @@ func TestConfigMigrationPreservesDisconnectedSettings(t *testing.T) {
 }
 
 func TestConfigMigrationRaisesOfflineTimeoutToMinimum(t *testing.T) {
-	for _, value := range []string{"1s", "3s", "4999ms"} {
+	for _, value := range []string{"1s", "3s", "5s", "7999ms"} {
 		t.Run(value, func(t *testing.T) {
 			state := map[string]string{
 				"openwrt2mqtt.network_device_disconnected":                 "event",
@@ -138,8 +138,8 @@ func TestConfigMigrationRaisesOfflineTimeoutToMinimum(t *testing.T) {
 			if commits := runMigrationHarness(t, state); commits != 1 {
 				t.Fatalf("commit count = %d, want 1", commits)
 			}
-			if got := state["openwrt2mqtt.network_device_disconnected.offline_timeout"]; got != "5s" {
-				t.Fatalf("offline timeout = %q, want 5s", got)
+			if got := state["openwrt2mqtt.network_device_disconnected.offline_timeout"]; got != "8s" {
+				t.Fatalf("offline timeout = %q, want 8s", got)
 			}
 		})
 	}
@@ -156,7 +156,7 @@ func TestInitScriptMapsUCIToEnvironment(t *testing.T) {
 		"<OPENWRT2MQTT_LOG_LEVEL=info>",
 		"<OPENWRT2MQTT_BUS_CAPACITY=128>",
 		"<OPENWRT2MQTT_EVENT_DEVICE_CONNECTED_ENABLED=1>",
-		"<OPENWRT2MQTT_OFFLINE_TIMEOUT=5s>",
+		"<OPENWRT2MQTT_OFFLINE_TIMEOUT=8s>",
 		"<OPENWRT2MQTT_MQTT_BROKER=127.0.0.1:1883>",
 		"<OPENWRT2MQTT_MQTT_CLIENT_ID=client-a>",
 		"<OPENWRT2MQTT_MQTT_USERNAME=user-a>",
@@ -204,7 +204,7 @@ func TestInitScriptAcceptsGoDurations(t *testing.T) {
 }
 
 func TestInitScriptAcceptsMinimumOfflineTimeout(t *testing.T) {
-	for _, value := range []string{"5s", "5000ms", "0.0833333334m"} {
+	for _, value := range []string{"8s", "8000ms", "0.1333333334m"} {
 		t.Run(value, func(t *testing.T) {
 			output, err := runInitHarness(t, map[string]string{"CFG_OFFLINE_TIMEOUT": value})
 			if err != nil {
@@ -218,13 +218,13 @@ func TestInitScriptAcceptsMinimumOfflineTimeout(t *testing.T) {
 }
 
 func TestInitScriptRejectsOfflineTimeoutBelowMinimum(t *testing.T) {
-	for _, value := range []string{"1s", "3s", "4999ms"} {
+	for _, value := range []string{"1s", "5s", "7999ms"} {
 		t.Run(value, func(t *testing.T) {
 			output, err := runInitHarness(t, map[string]string{"CFG_OFFLINE_TIMEOUT": value})
 			if err == nil {
 				t.Fatalf("start_service accepted offline timeout %q:\n%s", value, output)
 			}
-			if !strings.Contains(output, "offline timeout must be at least 5s") {
+			if !strings.Contains(output, "offline timeout must be at least 8s") {
 				t.Fatalf("unexpected validation output:\n%s", output)
 			}
 			if strings.Contains(output, "PARAM <command>") {

@@ -117,14 +117,17 @@ msgstr "首次发现设备或设备重新连接时发布接入事件。"
 msgid "Device disconnection"
 msgstr "设备断开"
 
-msgid "Publish an event after a device remains unreachable for the configured offline time."
-msgstr "设备持续不可达达到设定离线时间后发布断开事件。"
+msgid "Publish an event after no trusted online evidence is observed for the configured total offline time."
+msgstr "从最后一次可信在线证据开始，持续达到设定的总离线时间后发布设备断开事件。"
 
-msgid "Offline time (seconds)"
-msgstr "离线时间（秒）"
+msgid "Device offline time (seconds)"
+msgstr "设备离线时间（秒）"
 
-msgid "Offline time must be an integer of at least 5 seconds."
-msgstr "离线时间必须为不小于 5 秒的整数。"
+msgid "Total time from the last trusted online evidence until the device disconnection event is published."
+msgstr "从最后一次可信在线证据开始，到正式发布设备断开事件为止的总时间。"
+
+msgid "Offline time must be an integer of at least 8 seconds."
+msgstr "离线时间必须为不小于 8 秒的整数。"
 
 msgid "Capture interface"
 msgstr "监听接口"
