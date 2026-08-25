@@ -16,43 +16,43 @@ import (
 )
 
 const (
-	netlinkRoute        = 0
-	rtmNewNeighbor      = 28
-	rtmDelNeighbor      = 29
-	rtmGetNeighbor      = 30
-	rtmGroupNeighbor    = 4
-	nudIncomplete       = 0x01
-	nudReachable        = 0x02
-	nudStale            = 0x04
-	nudDelay            = 0x08
-	nudProbe            = 0x10
-	nudFailed           = 0x20
-	nudNoARP            = 0x40
-	nudPermanent        = 0x80
-	ndaDestination      = 1
-	ndaLinkAddress      = 2
-	netlinkBufferSize   = 64 * 1024
-	maxConcurrentProbes = 8
-	probeAttempts       = 5
-	probeWindow         = 2 * time.Second
-	probeSettleWindow   = 500 * time.Millisecond
-	probeInterval       = 150 * time.Millisecond
-	probePollInterval   = 250 * time.Millisecond
+	netlinkRoute              = 0
+	rtmNewNeighbor            = 28
+	rtmDelNeighbor            = 29
+	rtmGetNeighbor            = 30
+	rtmGroupNeighbor          = 4
+	nudIncomplete             = 0x01
+	nudReachable              = 0x02
+	nudStale                  = 0x04
+	nudDelay                  = 0x08
+	nudProbe                  = 0x10
+	nudFailed                 = 0x20
+	nudNoARP                  = 0x40
+	nudPermanent              = 0x80
+	ndaDestination            = 1
+	ndaLinkAddress            = 2
+	netlinkBufferSize         = 64 * 1024
+	maxConcurrentProbes       = 8
+	probeAttempts             = 5
+	probeWindow               = 2 * time.Second
+	probeSettleWindow         = 500 * time.Millisecond
+	probeInterval             = 150 * time.Millisecond
+	probePollInterval         = 250 * time.Millisecond
+	offlineConfirmationWindow = 5 * time.Second
 )
 
 type deviceState struct {
-	ip               net.IP
-	mac              net.HardwareAddr
-	data             map[string]any
-	online           bool
-	verified         bool
-	reconnectPending bool
-	lastSeen         time.Time
-	offlineDeadline  time.Time
-	disconnectedAt   time.Time
-	generation       uint64
-	probePending     bool
-	probeID          uint64
+	ip              net.IP
+	mac             net.HardwareAddr
+	data            map[string]any
+	online          bool
+	verified        bool
+	lastSeen        time.Time
+	offlineDeadline time.Time
+	disconnectedAt  time.Time
+	generation      uint64
+	probePending    bool
+	probeID         uint64
 }
 
 type probeRequest struct {
@@ -102,7 +102,6 @@ func (t *presenceTracker) observeNeighbor(observed *neighborObservation, now tim
 		state.verified = true
 		if !state.online {
 			state.online = true
-			state.reconnectPending = false
 			t.markSeen(state, now)
 			return "device.connected", state
 		}
@@ -111,7 +110,6 @@ func (t *presenceTracker) observeNeighbor(observed *neighborObservation, now tim
 	}
 	if !state.online {
 		state.online = true
-		state.reconnectPending = false
 		t.markSeen(state, now)
 		return "device.connected", state
 	}
@@ -134,7 +132,6 @@ func (t *presenceTracker) observeTraffic(mac net.HardwareAddr, observedAt time.T
 	}
 	if !state.online {
 		state.online = true
-		state.reconnectPending = false
 		t.markSeen(state, observedAt)
 		return "device.connected", state
 	}
@@ -148,10 +145,13 @@ func (t *presenceTracker) beginProbes(now time.Time, limit int) []probeRequest {
 	}
 	requests := make([]probeRequest, 0, len(t.states))
 	for key, state := range t.states {
-		if state.probePending || (!state.online && !state.reconnectPending) {
+		if state.probePending || !state.online {
 			continue
 		}
-		deadline := state.lastSeen.Add(t.offlineTimeout)
+		deadline := state.offlineDeadline
+		if deadline.IsZero() {
+			deadline = state.lastSeen.Add(t.offlineTimeout - offlineConfirmationWindow)
+		}
 		if deadline.After(now.Add(probeWindow)) {
 			continue
 		}
@@ -195,27 +195,20 @@ func (t *presenceTracker) applyProbe(result probeResult) (string, *deviceState) 
 		return "", state
 	}
 	if result.online {
-		if !state.online {
-			state.online = true
-			state.reconnectPending = false
-			t.markSeen(state, result.checked)
-			return "device.connected", state
-		}
 		t.markSeen(state, result.checked)
 		return "", state
 	}
-	if !state.online {
-		state.reconnectPending = false
+	if !state.online || result.checked.Before(result.deadline) {
 		return "", state
 	}
 	if state.offlineDeadline.IsZero() {
-		state.offlineDeadline = result.deadline
+		state.offlineDeadline = state.lastSeen.Add(t.offlineTimeout)
+		return "", state
 	}
 	if result.checked.Before(state.offlineDeadline) {
 		return "", state
 	}
 	state.online = false
-	state.reconnectPending = false
 	state.offlineDeadline = time.Time{}
 	state.disconnectedAt = result.checked
 	state.generation++

@@ -15,7 +15,7 @@ func TestFromEnvironment(t *testing.T) {
 	if err != nil {
 		t.Fatalf("FromEnvironment() error = %v", err)
 	}
-	if config.Interface != "br-lan" || config.MQTTBroker != "tcp://127.0.0.1:1883" || config.MQTTClientID != "router-a" || config.MQTTQoS != 1 || !config.DeviceConnectedEnabled {
+	if config.Interface != "br-lan" || config.MQTTBroker != "tcp://127.0.0.1:1883" || config.MQTTClientID != "router-a" || config.MQTTQoS != 1 || config.OfflineTimeout != 8*time.Second || !config.DeviceConnectedEnabled {
 		t.Fatalf("unexpected config: %#v", config)
 	}
 }
@@ -66,7 +66,7 @@ func TestFromEnvironmentRejectsInvalidDeviceConnectedFlag(t *testing.T) {
 }
 
 func TestFromEnvironmentAcceptsMinimumOfflineTimeout(t *testing.T) {
-	for _, value := range []string{"5s", "5000ms", "0.0833333334m"} {
+	for _, value := range []string{"8s", "8000ms", "0.1333333334m"} {
 		t.Run(value, func(t *testing.T) {
 			t.Setenv("OPENWRT2MQTT_ROUTER_ID", "router-a")
 			t.Setenv("OPENWRT2MQTT_OFFLINE_TIMEOUT", value)
@@ -75,15 +75,15 @@ func TestFromEnvironmentAcceptsMinimumOfflineTimeout(t *testing.T) {
 			if err != nil {
 				t.Fatalf("FromEnvironment() error = %v", err)
 			}
-			if config.OfflineTimeout < 5*time.Second {
-				t.Fatalf("OfflineTimeout = %s, want at least 5s", config.OfflineTimeout)
+			if config.OfflineTimeout < 8*time.Second {
+				t.Fatalf("OfflineTimeout = %s, want at least 8s", config.OfflineTimeout)
 			}
 		})
 	}
 }
 
 func TestFromEnvironmentRejectsOfflineTimeoutBelowMinimum(t *testing.T) {
-	for _, value := range []string{"1s", "3s", "4999ms"} {
+	for _, value := range []string{"1s", "5s", "7999ms"} {
 		t.Run(value, func(t *testing.T) {
 			t.Setenv("OPENWRT2MQTT_ROUTER_ID", "router-a")
 			t.Setenv("OPENWRT2MQTT_OFFLINE_TIMEOUT", value)
@@ -92,7 +92,7 @@ func TestFromEnvironmentRejectsOfflineTimeoutBelowMinimum(t *testing.T) {
 			if err == nil {
 				t.Fatal("FromEnvironment() expected an error")
 			}
-			if !strings.Contains(err.Error(), "must be at least 5s") {
+			if !strings.Contains(err.Error(), "must be at least 8s") {
 				t.Fatalf("error = %q", err)
 			}
 		})

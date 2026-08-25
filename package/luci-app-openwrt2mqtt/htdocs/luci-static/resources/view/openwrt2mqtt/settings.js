@@ -316,21 +316,22 @@ return view.extend({
 		};
 
 		o = bindOption(s.taboption('events', form.Flag, '_device_disconnected_enabled',
-			_('Device disconnection'), _('Publish an event after a device remains unreachable for the configured offline time.')),
+			_('Device disconnection'), _('Publish an event after no trusted online evidence is observed for the configured total offline time.')),
 			'network_device_disconnected', 'enabled', 'event');
 		o.default = o.enabled;
 		o.rmempty = false;
 
-		o = bindSecondsOption(s.taboption('events', form.Value, '_offline_timeout', _('Offline time (seconds)')),
+		o = bindSecondsOption(s.taboption('events', form.Value, '_offline_timeout', _('Device offline time (seconds)'),
+			_('Total time from the last trusted online evidence until the device disconnection event is published.')),
 			'network_device_disconnected', 'offline_timeout', 'event');
-		o.default = '5';
-		o.datatype = 'and(uinteger,min(5))';
+		o.default = '8';
+		o.datatype = 'and(uinteger,min(8))';
 		o.rmempty = false;
 		o.retain = true;
 		o.depends('_device_disconnected_enabled', '1');
 		o.validate = function(sectionId, value) {
-			return /^[1-9][0-9]*$/.test(value) && Number(value) >= 5
-				? true : _('Offline time must be an integer of at least 5 seconds.');
+			return /^[1-9][0-9]*$/.test(value) && Number(value) >= 8
+				? true : _('Offline time must be an integer of at least 8 seconds.');
 		};
 
 		o = s.taboption('advanced', form.ListValue, 'log_level', _('Log level'));
